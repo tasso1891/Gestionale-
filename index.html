@@ -605,9 +605,23 @@ function giorniDalBackup(){
   if(!d) return null;
   return giorniDa(d);
 }
+function htmlCloud(){
+  const cl = window.cloud;
+  if(!cl) return `<div style="font-size:13px; color:var(--ink-soft); margin-bottom:16px; line-height:1.5">☁ Salvataggio online non attivo: apri l'app dall'indirizzo su internet per attivarlo.</div>`;
+  const st = cl.stato;
+  const connesso = !!st.email;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="section-title" style="margin-bottom:4px">☁ Salvataggio online</div>
+    <div style="font-size:13px; color:var(--ink-soft); line-height:1.5; margin-bottom:10px">${esc(st.testo)}${connesso?' · '+esc(st.email):''}</div>
+    ${connesso
+      ? `<button class="btn btn-subtle" style="margin-bottom:8px" onclick="window.cloud.sincronizzaOra().then(()=>{ closeSheet(); render(); })">🔄 Sincronizza ora</button>
+         <button class="btn btn-ghost" onclick="window.cloud.esci(); closeSheet()">Esci dall'account</button>`
+      : `<button class="btn btn-primary" onclick="closeSheet(); window.cloud.accedi()">Accedi</button>`}
+  </div>`;
+}
 function apriBackup(){
   const gg = giorniDalBackup();
-  openSheet('Backup dati', `
+  openSheet('Backup dati', htmlCloud() + `
     <div style="font-size:13px; color:var(--ink-soft); margin-bottom:14px; line-height:1.5">
       I dati sono salvati solo su questo telefono. Se cambi telefono o cancelli i dati del browser li perdi: fai un backup ogni tanto: copialo e incollalo in una nota o in un messaggio a te stesso. ${gg===null?'Non hai ancora fatto nessun backup.':`Ultimo backup: ${gg===0?'oggi':gg+' giorni fa'}.`}
     </div>
@@ -666,6 +680,7 @@ function chiediRipristino(){
 function eseguiRipristino(){
   const b = backupDaRipristinare; if(!b) return;
   try{
+    localStorage.setItem('sync_forcePush','1');
     const vecchie = [];
     for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf('gv_')===0 && k!==CHIAVE_ULTIMO_BACKUP) vecchie.push(k); }
     vecchie.forEach(k=> localStorage.removeItem(k));
@@ -3026,5 +3041,176 @@ if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
 }
 </script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCt9D9Uomu3rNhDq1qDICuWnUdZJjmLlow",
+  authDomain: "gestionale-422df.firebaseapp.com",
+  projectId: "gestionale-422df",
+  storageBucket: "gestionale-422df.firebasestorage.app",
+  messagingSenderId: "821831582537",
+  appId: "1:821831582537:web:51bc9804bc708c24369098"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ---- Sincronizzazione: ogni chiave "gv_" dell'app diventa un documento nella raccolta "gestionale" ----
+const COLL = 'gestionale';
+const ESCLUSE = new Set(['gv_annoAttivo','gv_stagioneAttiva','gv_ultimoBackup']); // preferenze di questo telefono
+const tracciata = k => typeof k==='string' && k.indexOf('gv_')===0 && !ESCLUSE.has(k);
+const hash = s => { let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return s.length+':'+h; };
+const setOrig = Storage.prototype.setItem;
+const ora = () => new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+const conTimeout = (p,ms=20000) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))]);
+
+let utente = null, remoto = null, unsub = null, occupato = false, richiesto = false, tPush = null, ricaricaInAttesa = false;
+const stato = { testo:'non connesso', email:'' };
+
+function leggiMeta(){ try{ return JSON.parse(localStorage.getItem('sync_meta')||'{}'); }catch(e){ return {}; } }
+function salvaMeta(m){ try{ setOrig.call(localStorage,'sync_meta',JSON.stringify(m)); }catch(e){} }
+function overlayAperto(){ const o=document.getElementById('overlay'); return !!(o && o.classList.contains('show')); }
+function ricarica(){
+  const ultimo = Number(localStorage.getItem('sync_reloadTs')||0);
+  if(Date.now()-ultimo < 8000) return; // evita cicli di ricarica
+  if(overlayAperto()){ ricaricaInAttesa = true; return; }
+  try{ setOrig.call(localStorage,'sync_reloadTs',String(Date.now())); }catch(e){}
+  location.reload();
+}
+setInterval(()=>{ if(ricaricaInAttesa && !overlayAperto()){ ricaricaInAttesa=false; ricarica(); } }, 3000);
+
+async function spingi(k, meta){
+  const v = localStorage.getItem(k); if(v===null) return;
+  const t = Date.now();
+  await conTimeout(setDoc(doc(db,COLL,k),{ v, t, by: (utente && utente.email) || '' }));
+  meta[k] = { t, h: hash(v) };
+}
+
+async function sincronizza(){
+  if(!utente || remoto===null) return;
+  if(occupato){ richiesto = true; return; }
+  occupato = true;
+  const meta = leggiMeta();
+  try{
+    const locali = [];
+    for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(tracciata(k)) locali.push(k); }
+
+    // dopo un ripristino da backup: i dati di questo telefono diventano quelli giusti anche online
+    if(localStorage.getItem('sync_forcePush')==='1'){
+      for(const k of Object.keys(remoto)){ if(tracciata(k) && !locali.includes(k)) await conTimeout(deleteDoc(doc(db,COLL,k))); }
+      for(const k of locali){ await spingi(k, meta); }
+      localStorage.removeItem('sync_forcePush');
+      stato.testo = 'sincronizzato alle '+ora();
+      return;
+    }
+
+    let cambiato = false;
+    // 1) scarico le modifiche fatte da altri telefoni
+    for(const k of Object.keys(remoto)){
+      if(!tracciata(k)) continue;
+      const rv = remoto[k] && remoto[k].v; if(typeof rv!=='string') continue;
+      const rt = (remoto[k] && remoto[k].t) || 0;
+      const loc = localStorage.getItem(k);
+      const m = meta[k];
+      if(loc===rv){ meta[k] = { t:rt, h:hash(rv) }; continue; }
+      let prendi;
+      if(loc===null) prendi = true;
+      else if(!m) prendi = rv.length >= loc.length;      // primo accesso: vince chi ha più dati
+      else if(hash(loc)!==m.h) prendi = false;            // modifica locale non ancora inviata
+      else prendi = rt > m.t;
+      if(prendi){ setOrig.call(localStorage,k,rv); meta[k] = { t:rt, h:hash(rv) }; cambiato = true; }
+    }
+    // 2) invio le mie modifiche
+    for(const k of locali){
+      const loc = localStorage.getItem(k); const m = meta[k];
+      if(!m || hash(loc)!==m.h) await spingi(k, meta);
+    }
+    stato.testo = 'sincronizzato alle '+ora();
+    if(cambiato) ricarica();
+  }catch(e){
+    console.error(e);
+    stato.testo = 'non sincronizzato (riprovo appena possibile)';
+  }finally{
+    salvaMeta(meta);
+    occupato = false;
+    if(richiesto){ richiesto = false; setTimeout(sincronizza, 500); }
+  }
+}
+
+function pianifica(){ clearTimeout(tPush); tPush = setTimeout(sincronizza, 2000); }
+Storage.prototype.setItem = function(k,v){ setOrig.call(this,k,v); if(this===localStorage && tracciata(k)) pianifica(); };
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') sincronizza(); });
+setInterval(sincronizza, 60000); // controlla modifiche locali; non legge dal database
+
+function avvia(user){
+  utente = user; stato.email = user.email || ''; stato.testo = 'connessione…';
+  if(unsub) unsub();
+  unsub = onSnapshot(collection(db,COLL), snap=>{
+    const r = {}; snap.forEach(d=>{ r[d.id] = d.data(); });
+    remoto = r; sincronizza();
+  }, err=>{
+    console.error(err);
+    stato.testo = (err && err.code==='permission-denied') ? 'accesso negato dalle regole del database' : 'database non raggiungibile';
+  });
+}
+function ferma(){
+  if(unsub){ unsub(); unsub = null; }
+  utente = null; remoto = null; stato.email = ''; stato.testo = 'non connesso';
+}
+
+// ---- Schermata di accesso ----
+function messaggioErrore(ex){
+  const c = (ex && ex.code) || '';
+  if(['auth/invalid-credential','auth/wrong-password','auth/user-not-found','auth/invalid-email'].includes(c)) return 'Email o password non corrette.';
+  if(c==='auth/too-many-requests') return 'Troppi tentativi: riprova tra qualche minuto.';
+  if(c==='auth/network-request-failed') return 'Nessuna connessione.';
+  return 'Accesso non riuscito ('+(c||'errore')+').';
+}
+function nascondiLogin(){ const el=document.getElementById('cloud-login'); if(el) el.remove(); }
+function mostraLogin(){
+  if(document.getElementById('cloud-login')) return;
+  const el = document.createElement('div');
+  el.id = 'cloud-login';
+  el.style.cssText = 'position:fixed; inset:0; z-index:10000; background:var(--bg,#F5F2EA); display:flex; align-items:center; justify-content:center; padding:24px; overflow:auto;';
+  el.innerHTML = `<div style="width:100%; max-width:380px">
+    <div class="display" style="font-size:30px; margin-bottom:6px">Aree verdi</div>
+    <div style="font-size:14px; color:var(--ink-soft); margin-bottom:20px; line-height:1.5">Accedi per salvare i dati online e ritrovarli su ogni telefono.</div>
+    <div class="field"><div class="field-label">Email</div>
+      <input class="input" id="cl-email" type="email" autocomplete="username" autocapitalize="none" autocorrect="off"></div>
+    <div class="field"><div class="field-label">Password</div>
+      <input class="input" id="cl-pass" type="password" autocomplete="current-password"></div>
+    <div id="cl-err" style="color:var(--rust); font-size:13px; min-height:18px; margin:4px 0 10px"></div>
+    <button class="btn btn-primary" id="cl-go">Accedi</button>
+    <button class="btn btn-ghost" id="cl-skip" style="margin-top:10px">Continua senza accedere</button>
+  </div>`;
+  document.body.appendChild(el);
+  const go = el.querySelector('#cl-go'), err = el.querySelector('#cl-err');
+  go.onclick = async ()=>{
+    const e = el.querySelector('#cl-email').value.trim(), p = el.querySelector('#cl-pass').value;
+    if(!e || !p){ err.textContent = 'Scrivi email e password.'; return; }
+    err.textContent = ''; go.disabled = true; go.textContent = 'Accesso…';
+    try{ await signInWithEmailAndPassword(auth, e, p); }
+    catch(ex){ err.textContent = messaggioErrore(ex); go.disabled = false; go.textContent = 'Accedi'; }
+  };
+  el.querySelector('#cl-pass').addEventListener('keydown', ev=>{ if(ev.key==='Enter') go.click(); });
+  el.querySelector('#cl-skip').onclick = nascondiLogin;
+}
+
+onAuthStateChanged(auth, user=>{
+  if(user){ nascondiLogin(); avvia(user); }
+  else { ferma(); mostraLogin(); }
+});
+
+window.cloud = {
+  get stato(){ return stato; },
+  sincronizzaOra: ()=> sincronizza(),
+  esci: ()=> signOut(auth),
+  accedi: ()=> mostraLogin()
+};
+</script>
+
 </body>
 </html>
