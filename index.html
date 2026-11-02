@@ -77,12 +77,13 @@ textarea.input{min-height:70px; resize:vertical;}
 .close-btn{background:var(--line); border:none; border-radius:999px; width:32px; height:32px; display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--ink); cursor:pointer;}
 
 nav{position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line);
-  display:flex; padding-bottom:env(safe-area-inset-bottom); z-index:40;}
-.nav-btn{flex:1; background:none; border:none; padding:9px 2px 8px; display:flex; flex-direction:column;
+  display:flex; padding-bottom:env(safe-area-inset-bottom); z-index:40; overflow-x:auto; scrollbar-width:none;}
+nav::-webkit-scrollbar{display:none;}
+.nav-btn{flex:1 0 auto; min-width:42px; background:none; border:none; padding:9px 3px 8px; display:flex; flex-direction:column;
   align-items:center; gap:3px; cursor:pointer; color:#A6AC9B;}
 .nav-btn.active{color:var(--forest);}
 .nav-btn svg{width:21px; height:21px;}
-.nav-label{font-size:9.5px; font-weight:600;}
+.nav-label{font-size:9px; font-weight:600;}
 .nav-btn.active .nav-label{font-weight:700;}
 
 .chips{display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;}
@@ -123,7 +124,7 @@ nav{position:fixed; bottom:0; left:0; right:0; background:var(--card); border-to
 // ---------- storage ----------
 // dati sempre globali, condivisi tra tutti gli anni
 const KEYS_GLOBALI = ['condomini','macchinari','privatiClienti','leleClienti'];
-let DB = {condomini:[], macchinari:[], privatiClienti:[], leleClienti:[], interventiAnni:{}, privatiLavoriAnni:{}, leleLavoriAnni:{}, benzinaAnni:{}, fattureAnni:{}, fattureLeleAnni:{}, privatiAccontiAnni:{}, neveStagioni:{}, fattureNeveStagioni:{}};
+let DB = {condomini:[], macchinari:[], privatiClienti:[], leleClienti:[], interventiAnni:{}, privatiLavoriAnni:{}, leleLavoriAnni:{}, benzinaAnni:{}, sciAnni:{}, fattureAnni:{}, fattureLeleAnni:{}, privatiAccontiAnni:{}, neveStagioni:{}, fattureNeveStagioni:{}};
 KEYS_GLOBALI.forEach(k=>{
   try{ const raw = localStorage.getItem('gv_'+k); DB[k] = raw ? JSON.parse(raw) : []; }
   catch(e){ DB[k] = []; }
@@ -132,6 +133,7 @@ try{ const raw = localStorage.getItem('gv_interventiAnni'); DB.interventiAnni = 
 try{ const raw = localStorage.getItem('gv_privatiLavoriAnni'); DB.privatiLavoriAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.privatiLavoriAnni = {}; }
 try{ const raw = localStorage.getItem('gv_leleLavoriAnni'); DB.leleLavoriAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.leleLavoriAnni = {}; }
 try{ const raw = localStorage.getItem('gv_benzinaAnni'); DB.benzinaAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.benzinaAnni = {}; }
+try{ const raw = localStorage.getItem('gv_sciAnni'); DB.sciAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.sciAnni = {}; }
 try{ const raw = localStorage.getItem('gv_fattureAnni'); DB.fattureAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.fattureAnni = {}; }
 try{ const raw = localStorage.getItem('gv_fattureLeleAnni'); DB.fattureLeleAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.fattureLeleAnni = {}; }
 try{ const raw = localStorage.getItem('gv_privatiAccontiAnni'); DB.privatiAccontiAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.privatiAccontiAnni = {}; }
@@ -244,7 +246,7 @@ function calcolaStagioneDa(dataISO){
 
 function persist(k){
   try{
-    const redirect = {interventi:'interventiAnni', privatiLavori:'privatiLavoriAnni', leleLavori:'leleLavoriAnni', benzina:'benzinaAnni', fatture:'fattureAnni', fattureLele:'fattureLeleAnni', privatiAcconti:'privatiAccontiAnni', neve:'neveStagioni', fattureNeve:'fattureNeveStagioni'};
+    const redirect = {interventi:'interventiAnni', privatiLavori:'privatiLavoriAnni', leleLavori:'leleLavoriAnni', benzina:'benzinaAnni', sci:'sciAnni', fatture:'fattureAnni', fattureLele:'fattureLeleAnni', privatiAcconti:'privatiAccontiAnni', neve:'neveStagioni', fattureNeve:'fattureNeveStagioni'};
     const realKey = redirect[k] || k;
     localStorage.setItem('gv_'+realKey, JSON.stringify(DB[realKey]));
   }catch(e){ console.error(e); }
@@ -265,6 +267,10 @@ Object.defineProperty(DB, 'privatiLavori', {
 Object.defineProperty(DB, 'leleLavori', {
   get(){ if(!DB.leleLavoriAnni[annoAttivo]) DB.leleLavoriAnni[annoAttivo]=[]; return DB.leleLavoriAnni[annoAttivo]; },
   set(v){ DB.leleLavoriAnni[annoAttivo] = v; }
+});
+Object.defineProperty(DB, 'sci', {
+  get(){ if(!DB.sciAnni[annoAttivo]) DB.sciAnni[annoAttivo]=[]; return DB.sciAnni[annoAttivo]; },
+  set(v){ DB.sciAnni[annoAttivo] = v; }
 });
 Object.defineProperty(DB, 'benzina', {
   get(){ if(!DB.benzinaAnni[annoAttivo]) DB.benzinaAnni[annoAttivo]=[]; return DB.benzinaAnni[annoAttivo]; },
@@ -526,6 +532,7 @@ const ICONS = {
   privati:'<rect x="4" y="8" width="16" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   benzina:'<path d="M5 21V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="3" y1="21" x2="15" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0v-6.5L19.5 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="7" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.6"/>',
   neve:'<line x1="12" y1="3" x2="12" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="4.5" y1="7" x2="19.5" y2="17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="19.5" y1="7" x2="4.5" y2="17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 3l-1.8 1.8M12 3l1.8 1.8M12 21l-1.8-1.8M12 21l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  sci:'<path d="M3 17.5 17.8 10.6q1.7-.8 2.8.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 21 20 14.1q1.7-.8 2.8.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="8.5" y1="4.5" x2="11.5" y2="13.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="15" y1="3.5" x2="16.8" y2="10.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   lele:'<path d="M8.5 15.5 4 20l0 0a1.4 1.4 0 0 0 2 2l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.2 13.8 10 10.6M18.8 3.7a4 4 0 0 1-5 5.2L9.4 13.3a1.6 1.6 0 0 1-2.3 0l-.4-.4a1.6 1.6 0 0 1 0-2.3l4.4-4.4a4 4 0 0 1 5.2-5l-2.6 2.6a1.3 1.3 0 0 0 0 1.9l.9.9a1.3 1.3 0 0 0 1.9 0Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 
@@ -543,6 +550,7 @@ function render(){
   else if(TAB==='benzina') c.innerHTML = renderBenzina();
   else if(TAB==='neve') c.innerHTML = renderNeve();
   else if(TAB==='resocontoNeve') c.innerHTML = renderResocontoNeve();
+  else if(TAB==='sci') c.innerHTML = renderSci();
   else if(TAB==='lele') c.innerHTML = renderLele();
   else if(TAB==='resocontoLele') c.innerHTML = renderResocontoLele();
   else if(TAB==='totali') c.innerHTML = renderTotali();
@@ -559,6 +567,7 @@ function renderNav(){
     {id:'privati', label:'Privati', icon:ICONS.privati},
     {id:'benzina', label:'Benzina', icon:ICONS.benzina},
     {id:'neve', label:'Neve', icon:ICONS.neve},
+    {id:'sci', label:'Sci', icon:ICONS.sci},
     {id:'lele', label:'Lele', icon:ICONS.lele},
     {id:'totali', label:'Totali', icon:ICONS.totali},
   ];
@@ -567,6 +576,8 @@ function renderNav(){
       <svg viewBox="0 0 24 24">${t.icon}</svg>
       <span class="nav-label">${t.label}</span>
     </button>`).join('');
+  const att = document.querySelector('#nav .nav-btn.active');
+  if(att && att.scrollIntoView){ try{ att.scrollIntoView({inline:'nearest', block:'nearest'}); }catch(e){} }
 }
 
 // ---------- HOME ----------
@@ -2523,6 +2534,7 @@ function anniDisponibili(){
     ...Object.keys(DB.privatiLavoriAnni||{}),
     ...Object.keys(DB.leleLavoriAnni||{}),
     ...Object.keys(DB.benzinaAnni||{}),
+    ...Object.keys(DB.sciAnni||{}),
     ...Object.keys(DB.fattureAnni||{}),
     ...Object.keys(DB.fattureLeleAnni||{}),
     ...Object.keys(DB.privatiAccontiAnni||{}),
@@ -2999,6 +3011,108 @@ function delBenzina(id){
   DB.benzina = DB.benzina.filter(b=>b.id!==id);
   persist('benzina');
   render();
+}
+
+// ---------- SCUOLA SCI: ore per sci club, scuola sci e sci club extra (pagate in modo diverso, quindi sempre separate) ----------
+const CATEGORIE_SCI = [
+  {id:'sciclub', label:'Sci club'},
+  {id:'scuola',  label:'Scuola sci'},
+  {id:'extra',   label:'Sci club extra'},
+];
+function labelSci(id){ const c = CATEGORIE_SCI.find(x=>x.id===id); return c ? c.label : 'Sci'; }
+
+function renderSci(){
+  const lista = DB.sci.slice().sort((a,b)=> (a.data||'')<(b.data||'') ? 1 : ((a.data||'')>(b.data||'') ? -1 : 0));
+  const annoReale = String(new Date().getFullYear());
+  const meseCorrente = todayISO().slice(0,7);
+  const sommaOre = arr=> arr.reduce((s,x)=> s+(Number(x.ore)||0), 0);
+
+  let html = `<div class="page">
+    <div class="display page-title">Scuola sci</div>
+    <div class="page-sub">${DB.sci.length} registrazioni nel ${annoAttivo}</div>
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center">
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Anno di lavoro</div>
+        <div class="name" style="font-size:20px">${annoAttivo}</div>
+      </div>
+      <button class="btn btn-subtle btn-auto" onclick="apriSelettoreAnno()">Cambia anno</button>
+    </div>
+    <button class="btn btn-primary" style="margin:14px 0 16px" onclick="openSciForm()">＋ Registra ore</button>
+    <div class="section-title">Totale ore ${annoAttivo}</div>`;
+
+  CATEGORIE_SCI.forEach(c=>{
+    const tutte = DB.sci.filter(x=>x.categoria===c.id);
+    const mese = annoAttivo===annoReale ? tutte.filter(x=> (x.data||'').startsWith(meseCorrente)) : [];
+    html += `<div class="card" style="display:flex; justify-content:space-between; align-items:center">
+      <div>
+        <div class="name">${esc(c.label)}</div>
+        <div class="sub">${tutte.length} ${tutte.length===1?'registrazione':'registrazioni'}${annoAttivo===annoReale?` · questo mese ${fmtOre(sommaOre(mese))} h`:''}</div>
+      </div>
+      <div style="font-size:24px; font-weight:700; color:var(--forest-deep); white-space:nowrap">${fmtOre(sommaOre(tutte))} h</div>
+    </div>`;
+  });
+
+  if(lista.length===0){
+    html += `<div class="empty">Registra qui le ore fatte allo sci club, alla scuola sci e allo sci club extra: i totali restano sempre separati.</div>`;
+  } else {
+    html += `<div class="section-title" style="margin-top:14px">Registrazioni</div>`;
+  }
+  lista.forEach(x=>{
+    html += `<div class="card" onclick="openSciForm('${x.id}')">
+      <div class="row-between">
+        <div>
+          <div class="name">${esc(labelSci(x.categoria))}</div>
+          <div class="sub">${fmtData(x.data)}</div>
+          ${x.note?`<div style="font-size:13px; margin-top:5px">${esc(x.note)}</div>`:''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:700; color:var(--forest-deep); white-space:nowrap">${fmtOre(x.ore)} h</div>
+          <button class="close-btn" style="background:none; margin-top:6px" onclick="event.stopPropagation(); delSci('${x.id}')">🗑</button>
+        </div>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function openSciForm(id){
+  const x = id ? DB.sci.find(r=>r.id===id) : null;
+  const opzioni = CATEGORIE_SCI.map(c=>`<option value="${c.id}" ${x && x.categoria===c.id ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
+  openSheet(x ? 'Modifica ore' : 'Nuove ore sci', `
+    <div class="field"><div class="field-label">Data</div>
+      <input class="input" type="date" id="f-data" value="${x ? esc(x.data) : todayISO()}"></div>
+    <div class="field"><div class="field-label">Tipo di ore</div>
+      <select class="input" id="f-cat">${opzioni}</select></div>
+    <div class="field"><div class="field-label">Ore</div>
+      <input class="input" type="number" inputmode="decimal" step="0.25" min="0" id="f-ore" placeholder="es. 2 oppure 1.5" value="${x ? esc(x.ore) : ''}"></div>
+    <div class="field"><div class="field-label">Note (opzionale)</div>
+      <textarea class="input" id="f-note">${x ? esc(x.note||'') : ''}</textarea></div>
+    <button class="btn btn-primary" onclick="saveSci('${x ? x.id : ''}')">Salva</button>
+  `);
+}
+function saveSci(id){
+  const data = document.getElementById('f-data').value || todayISO();
+  const categoria = document.getElementById('f-cat').value;
+  const ore = Number(String(document.getElementById('f-ore').value).replace(',','.'));
+  const note = document.getElementById('f-note').value;
+  if(!(ore>0)){ toast('Scrivi le ore'); return; }
+  if(id){
+    const x = DB.sci.find(r=>r.id===id);
+    if(x){ x.data = data; x.categoria = categoria; x.ore = ore; x.note = note; }
+  } else {
+    DB.sci.unshift({ id: uid(), data, categoria, ore, note });
+  }
+  persist('sci');
+  closeSheet();
+  render();
+}
+function delSci(id){
+  openConfirm('Eliminare questa registrazione?', ()=>{
+    DB.sci = DB.sci.filter(r=>r.id!==id);
+    persist('sci');
+    render();
+  });
 }
 
 // ---------- sheet (modal) ----------
