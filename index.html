@@ -124,7 +124,7 @@ nav::-webkit-scrollbar{display:none;}
 // ---------- storage ----------
 // dati sempre globali, condivisi tra tutti gli anni
 const KEYS_GLOBALI = ['condomini','macchinari','privatiClienti','leleClienti'];
-let DB = {condomini:[], macchinari:[], privatiClienti:[], leleClienti:[], interventiAnni:{}, privatiLavoriAnni:{}, leleLavoriAnni:{}, benzinaAnni:{}, sciAnni:{}, fattureAnni:{}, fattureLeleAnni:{}, privatiAccontiAnni:{}, neveStagioni:{}, fattureNeveStagioni:{}};
+let DB = {condomini:[], macchinari:[], privatiClienti:[], leleClienti:[], interventiAnni:{}, privatiLavoriAnni:{}, leleLavoriAnni:{}, benzinaAnni:{}, sciAnni:{}, sciStagioni:{}, sciPagamenti:{}, fattureAnni:{}, fattureLeleAnni:{}, privatiAccontiAnni:{}, neveStagioni:{}, fattureNeveStagioni:{}};
 KEYS_GLOBALI.forEach(k=>{
   try{ const raw = localStorage.getItem('gv_'+k); DB[k] = raw ? JSON.parse(raw) : []; }
   catch(e){ DB[k] = []; }
@@ -134,6 +134,8 @@ try{ const raw = localStorage.getItem('gv_privatiLavoriAnni'); DB.privatiLavoriA
 try{ const raw = localStorage.getItem('gv_leleLavoriAnni'); DB.leleLavoriAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.leleLavoriAnni = {}; }
 try{ const raw = localStorage.getItem('gv_benzinaAnni'); DB.benzinaAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.benzinaAnni = {}; }
 try{ const raw = localStorage.getItem('gv_sciAnni'); DB.sciAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.sciAnni = {}; }
+try{ const raw = localStorage.getItem('gv_sciStagioni'); DB.sciStagioni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.sciStagioni = {}; }
+try{ const raw = localStorage.getItem('gv_sciPagamenti'); DB.sciPagamenti = raw ? JSON.parse(raw) : {}; }catch(e){ DB.sciPagamenti = {}; }
 try{ const raw = localStorage.getItem('gv_fattureAnni'); DB.fattureAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.fattureAnni = {}; }
 try{ const raw = localStorage.getItem('gv_fattureLeleAnni'); DB.fattureLeleAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.fattureLeleAnni = {}; }
 try{ const raw = localStorage.getItem('gv_privatiAccontiAnni'); DB.privatiAccontiAnni = raw ? JSON.parse(raw) : {}; }catch(e){ DB.privatiAccontiAnni = {}; }
@@ -246,7 +248,7 @@ function calcolaStagioneDa(dataISO){
 
 function persist(k){
   try{
-    const redirect = {interventi:'interventiAnni', privatiLavori:'privatiLavoriAnni', leleLavori:'leleLavoriAnni', benzina:'benzinaAnni', sci:'sciAnni', fatture:'fattureAnni', fattureLele:'fattureLeleAnni', privatiAcconti:'privatiAccontiAnni', neve:'neveStagioni', fattureNeve:'fattureNeveStagioni'};
+    const redirect = {interventi:'interventiAnni', privatiLavori:'privatiLavoriAnni', leleLavori:'leleLavoriAnni', benzina:'benzinaAnni', sci:'sciStagioni', fatture:'fattureAnni', fattureLele:'fattureLeleAnni', privatiAcconti:'privatiAccontiAnni', neve:'neveStagioni', fattureNeve:'fattureNeveStagioni'};
     const realKey = redirect[k] || k;
     localStorage.setItem('gv_'+realKey, JSON.stringify(DB[realKey]));
   }catch(e){ console.error(e); }
@@ -269,8 +271,12 @@ Object.defineProperty(DB, 'leleLavori', {
   set(v){ DB.leleLavoriAnni[annoAttivo] = v; }
 });
 Object.defineProperty(DB, 'sci', {
-  get(){ if(!DB.sciAnni[annoAttivo]) DB.sciAnni[annoAttivo]=[]; return DB.sciAnni[annoAttivo]; },
-  set(v){ DB.sciAnni[annoAttivo] = v; }
+  get(){ if(!DB.sciStagioni[stagioneAttiva]) DB.sciStagioni[stagioneAttiva]=[]; return DB.sciStagioni[stagioneAttiva]; },
+  set(v){ DB.sciStagioni[stagioneAttiva] = v; }
+});
+Object.defineProperty(DB, 'sciPag', {
+  get(){ if(!DB.sciPagamenti[stagioneAttiva]) DB.sciPagamenti[stagioneAttiva]={}; return DB.sciPagamenti[stagioneAttiva]; },
+  set(v){ DB.sciPagamenti[stagioneAttiva] = v; }
 });
 Object.defineProperty(DB, 'benzina', {
   get(){ if(!DB.benzinaAnni[annoAttivo]) DB.benzinaAnni[annoAttivo]=[]; return DB.benzinaAnni[annoAttivo]; },
@@ -390,6 +396,19 @@ if(!DB.benzinaAnni[annoAttivo]) DB.benzinaAnni[annoAttivo] = [];
 if(!DB.privatiAccontiAnni[annoAttivo]) DB.privatiAccontiAnni[annoAttivo] = [];
 if(!stagioneAttiva) stagioneAttiva = calcolaStagioneDa(todayISO());
 if(!DB.neveStagioni[stagioneAttiva]) DB.neveStagioni[stagioneAttiva] = [];
+(function migraSciInStagioni(){
+  try{
+    if(localStorage.getItem('gv_sciStagioni')!==null) return;
+    const anni = DB.sciAnni||{}; let spostate = 0;
+    Object.keys(anni).forEach(a=> (anni[a]||[]).forEach(x=>{
+      const st = calcolaStagioneDa(x.data);
+      if(!DB.sciStagioni[st]) DB.sciStagioni[st] = [];
+      DB.sciStagioni[st].push(x); spostate++;
+    }));
+    localStorage.setItem('gv_sciStagioni', JSON.stringify(DB.sciStagioni));
+    if(spostate){ DB.sciAnni = {}; localStorage.setItem('gv_sciAnni', '{}'); }
+  }catch(e){ console.error(e); }
+})();
 
 let TAB = 'home';
 let openCondoId = null;
@@ -2339,7 +2358,8 @@ function renderTotali(){
   const accTot = somma(DB.privatiAcconti.filter(a=> idPriv.has(a.clienteId)), a=>a.importo);
   const privTot = saldatiTot + accTot;
 
-  const gruppoA = condTot + neveTot + bon.tot;
+  const sci = sciRiepilogo();
+  const gruppoA = condTot + neveTot + bon.tot + sci.totale;
   const gruppoB = privTot + nero.tot;
 
   const riga = (lab, val, sub) => `<div class="row-between" style="padding:10px 0; border-top:1px solid var(--line)">
@@ -2348,7 +2368,10 @@ function renderTotali(){
 
   const righeA = riga('Fatture condomini', condTot, `incassato € ${condInc.toFixed(2)}`)
     + (stagioneAttiva ? riga('Fatture neve', neveTot, `incassato € ${neveInc.toFixed(2)}`) : '')
-    + riga('Lele · bonifico', bon.tot, `incassato € ${bon.inc.toFixed(2)}`);
+    + riga('Lele · bonifico', bon.tot, `incassato € ${bon.inc.toFixed(2)}`)
+    + (sci.scuola.importo>0.005 ? riga('Scuola sci', sci.scuola.importo, `${fmtOre(sci.ore.scuola)} h × € ${sci.scuola.orario.toFixed(2)}/h`) : '')
+    + (sci.sciclub.importo>0.005 ? riga('Sci club · contratto', sci.sciclub.importo, sci.sciclub.orario!==null ? `${fmtOre(sci.ore.sciclub)} h · € ${sci.sciclub.orario.toFixed(2)}/h` : '') : '')
+    + (sci.extra.importo>0.005 ? riga('Sci club extra', sci.extra.importo, sci.extra.orario!==null ? `${fmtOre(sci.ore.extra)} h · € ${sci.extra.orario.toFixed(2)}/h` : '') : '');
   const righeB = riga('Privati · lavori saldati', saldatiTot)
     + riga('Privati · acconti ricevuti', accTot)
     + riga('Lele · in nero', nero.tot, `incassato € ${nero.inc.toFixed(2)}`)
@@ -2356,7 +2379,7 @@ function renderTotali(){
 
   return `<div class="page">
     <div class="display page-title">Totali</div>
-    <div class="page-sub">anno ${annoAttivo}${stagioneAttiva?` · neve ${esc(stagioneAttiva)}`:''}</div>
+    <div class="page-sub">anno ${annoAttivo}${stagioneAttiva?` · neve e sci ${esc(stagioneAttiva)}`:''}</div>
     <div class="card" style="display:flex; justify-content:space-between; align-items:center">
       <div>
         <div class="section-title" style="margin-bottom:4px">Anno di lavoro</div>
@@ -2369,7 +2392,7 @@ function renderTotali(){
       <div style="font-weight:700; font-size:22px; color:var(--forest-deep)">€ ${(gruppoA+gruppoB).toFixed(2)}</div>
       ${nd.tot>0.005?`<div class="sub" style="margin-top:6px">Escluse fatture Lele senza metodo scelto: € ${nd.tot.toFixed(2)}</div>`:''}
     </div>
-    ${renderTotaliFolder('A', 'Condomini + bonifici Lele', gruppoA, righeA)}
+    ${renderTotaliFolder('A', 'Condomini + bonifici Lele + sci', gruppoA, righeA)}
     ${renderTotaliFolder('B', 'Privati + nero Lele', gruppoB, righeB)}
   </div>`;
 }
@@ -2534,7 +2557,6 @@ function anniDisponibili(){
     ...Object.keys(DB.privatiLavoriAnni||{}),
     ...Object.keys(DB.leleLavoriAnni||{}),
     ...Object.keys(DB.benzinaAnni||{}),
-    ...Object.keys(DB.sciAnni||{}),
     ...Object.keys(DB.fattureAnni||{}),
     ...Object.keys(DB.fattureLeleAnni||{}),
     ...Object.keys(DB.privatiAccontiAnni||{}),
@@ -2580,14 +2602,14 @@ function impostaAnnoAttivo(anno){
 
 // ---------- selettore stagione neve ----------
 function stagioniDisponibili(){
-  const set = new Set([...Object.keys(DB.neveStagioni||{}), stagioneAttiva, calcolaStagioneDa(todayISO())]);
+  const set = new Set([...Object.keys(DB.neveStagioni||{}), ...Object.keys(DB.sciStagioni||{}), ...Object.keys(DB.sciPagamenti||{}), stagioneAttiva, calcolaStagioneDa(todayISO())]);
   return Array.from(set).filter(Boolean).sort((a,b)=> b.localeCompare(a));
 }
 function apriSelettoreStagione(){
   const stagioni = stagioniDisponibili();
-  openSheet('Stagione neve', `
+  openSheet('Stagione', `
     <div style="font-size:13px; color:var(--ink-soft); margin-bottom:16px; line-height:1.5">
-      Lo sgombero neve è raggruppato per stagione invernale (es. novembre-dicembre insieme a gennaio-febbraio dell'anno dopo), non per anno solare — così non si spezza mai a metà.
+      Sgombero neve e scuola sci sono raggruppati per stagione invernale (es. novembre-dicembre insieme a gennaio-febbraio dell'anno dopo), non per anno solare: così non si spezzano mai a metà. La stagione scelta vale per tutte e due.
     </div>
     <div class="chips" style="margin-bottom:18px">
       ${stagioni.map(s=>`<button class="chip ${s===stagioneAttiva?'active':''}" onclick="impostaStagioneAttiva('${s}')">${s}</button>`).join('')}
@@ -3021,36 +3043,98 @@ const CATEGORIE_SCI = [
 ];
 function labelSci(id){ const c = CATEGORIE_SCI.find(x=>x.id===id); return c ? c.label : 'Sci'; }
 
+function sciRiepilogo(){
+  const ore = {};
+  CATEGORIE_SCI.forEach(c=>{ ore[c.id] = DB.sci.filter(x=>x.categoria===c.id).reduce((t,x)=> t+(Number(x.ore)||0), 0); });
+  const p = DB.sciPag;
+  const tariffa = Number(p.scuolaTariffa)||0, stip = Number(p.sciclubStipendio)||0, extra = Number(p.extraImporto)||0;
+  return {
+    ore,
+    scuola:  { importo: tariffa*ore.scuola, orario: tariffa },
+    sciclub: { importo: stip,  orario: ore.sciclub>0 ? stip/ore.sciclub : null },
+    extra:   { importo: extra, orario: ore.extra>0 ? extra/ore.extra : null },
+    totale: tariffa*ore.scuola + stip + extra
+  };
+}
+function setSciPagamento(campo, valore){
+  const v = String(valore).trim().replace(',','.');
+  const n = v==='' ? null : Number(v);
+  if(n!==null && !(n>=0)){ toast('Numero non valido'); render(); return; }
+  DB.sciPag[campo] = n;
+  persist('sciPagamenti');
+  render();
+}
+
 function renderSci(){
   const lista = DB.sci.slice().sort((a,b)=> (a.data||'')<(b.data||'') ? 1 : ((a.data||'')>(b.data||'') ? -1 : 0));
-  const annoReale = String(new Date().getFullYear());
   const meseCorrente = todayISO().slice(0,7);
-  const sommaOre = arr=> arr.reduce((s,x)=> s+(Number(x.ore)||0), 0);
+  const stagioneCorrente = stagioneAttiva===calcolaStagioneDa(todayISO());
+  const sommaOre = arr=> arr.reduce((t,x)=> t+(Number(x.ore)||0), 0);
+  const r = sciRiepilogo();
+  const p = DB.sciPag;
+  const eur = n=> '€ '+Number(n).toFixed(2);
+  const val = v=> (v===null || v===undefined) ? '' : esc(v);
+
+  // per ogni tipo: etichetta del campo, valore salvato, testo del calcolo
+  const paga = {
+    scuola: {
+      campo:'scuolaTariffa', etichetta:'Paga oraria (€ all\'ora)', valore:p.scuolaTariffa,
+      calcolo: r.scuola.orario>0
+        ? `${eur(r.scuola.orario)}/h × ${fmtOre(r.ore.scuola)} h = <b>${eur(r.scuola.importo)}</b>`
+        : `Inserisci a fine stagione quanto ti pagano all'ora.`
+    },
+    sciclub: {
+      campo:'sciclubStipendio', etichetta:'Stipendio da contratto (€)', valore:p.sciclubStipendio,
+      calcolo: r.sciclub.importo>0
+        ? (r.sciclub.orario!==null ? `${eur(r.sciclub.importo)} su ${fmtOre(r.ore.sciclub)} h = <b>${eur(r.sciclub.orario)}/h</b>` : `Nessuna ora registrata: non posso calcolare l'importo all'ora.`)
+        : `Inserisci il tuo stipendio e ti calcolo quanto viene all'ora.`
+    },
+    extra: {
+      campo:'extraImporto', etichetta:'Soldi ricevuti (€)', valore:p.extraImporto,
+      calcolo: r.extra.importo>0
+        ? (r.extra.orario!==null ? `${eur(r.extra.importo)} su ${fmtOre(r.ore.extra)} h = <b>${eur(r.extra.orario)}/h</b>` : `Nessuna ora registrata: non posso calcolare l'importo all'ora.`)
+        : `Inserisci quanto hai preso e ti calcolo quanto viene all'ora.`
+    },
+  };
 
   let html = `<div class="page">
     <div class="display page-title">Scuola sci</div>
-    <div class="page-sub">${DB.sci.length} registrazioni nel ${annoAttivo}</div>
+    <div class="page-sub">${DB.sci.length} registrazioni nella stagione ${esc(stagioneAttiva)}</div>
     <div class="card" style="display:flex; justify-content:space-between; align-items:center">
       <div>
-        <div class="section-title" style="margin-bottom:4px">Anno di lavoro</div>
-        <div class="name" style="font-size:20px">${annoAttivo}</div>
+        <div class="section-title" style="margin-bottom:4px">Stagione</div>
+        <div class="name" style="font-size:20px">${esc(stagioneAttiva)}</div>
       </div>
-      <button class="btn btn-subtle btn-auto" onclick="apriSelettoreAnno()">Cambia anno</button>
+      <button class="btn btn-subtle btn-auto" onclick="apriSelettoreStagione()">Cambia stagione</button>
     </div>
     <button class="btn btn-primary" style="margin:14px 0 16px" onclick="openSciForm()">＋ Registra ore</button>
-    <div class="section-title">Totale ore ${annoAttivo}</div>`;
+    <div class="section-title">Ore e paga · stagione ${esc(stagioneAttiva)}</div>`;
 
   CATEGORIE_SCI.forEach(c=>{
     const tutte = DB.sci.filter(x=>x.categoria===c.id);
-    const mese = annoAttivo===annoReale ? tutte.filter(x=> (x.data||'').startsWith(meseCorrente)) : [];
-    html += `<div class="card" style="display:flex; justify-content:space-between; align-items:center">
-      <div>
-        <div class="name">${esc(c.label)}</div>
-        <div class="sub">${tutte.length} ${tutte.length===1?'registrazione':'registrazioni'}${annoAttivo===annoReale?` · questo mese ${fmtOre(sommaOre(mese))} h`:''}</div>
+    const mese = stagioneCorrente ? tutte.filter(x=> (x.data||'').startsWith(meseCorrente)) : [];
+    const g = paga[c.id];
+    html += `<div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <div>
+          <div class="name">${esc(c.label)}</div>
+          <div class="sub">${tutte.length} ${tutte.length===1?'registrazione':'registrazioni'}${stagioneCorrente?` · questo mese ${fmtOre(sommaOre(mese))} h`:''}</div>
+        </div>
+        <div style="font-size:24px; font-weight:700; color:var(--forest-deep); white-space:nowrap">${fmtOre(sommaOre(tutte))} h</div>
       </div>
-      <div style="font-size:24px; font-weight:700; color:var(--forest-deep); white-space:nowrap">${fmtOre(sommaOre(tutte))} h</div>
+      <div style="border-top:1px solid var(--line); margin-top:12px; padding-top:12px">
+        <div class="field-label">${g.etichetta}</div>
+        <input class="input" type="number" inputmode="decimal" step="0.01" min="0" value="${val(g.valore)}" onchange="setSciPagamento('${g.campo}', this.value)">
+        <div style="font-size:13.5px; margin-top:8px; line-height:1.45">${g.calcolo}</div>
+      </div>
     </div>`;
   });
+
+  html += `<div class="card" style="background:var(--sage-light)">
+    <div class="section-title" style="margin-bottom:4px">Totale sci stagione ${esc(stagioneAttiva)}</div>
+    <div style="font-weight:700; font-size:22px; color:var(--forest-deep)">${eur(r.totale)}</div>
+    <div class="sub" style="margin-top:4px">Questa cifra va nei Totali, nella sezione bonifico.</div>
+  </div>`;
 
   if(lista.length===0){
     html += `<div class="empty">Registra qui le ore fatte allo sci club, alla scuola sci e allo sci club extra: i totali restano sempre separati.</div>`;
