@@ -77,13 +77,12 @@ textarea.input{min-height:70px; resize:vertical;}
 .close-btn{background:var(--line); border:none; border-radius:999px; width:32px; height:32px; display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--ink); cursor:pointer;}
 
 nav{position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line);
-  display:flex; padding-bottom:env(safe-area-inset-bottom); z-index:40; overflow-x:auto; scrollbar-width:none;}
-nav::-webkit-scrollbar{display:none;}
-.nav-btn{flex:1 0 auto; min-width:42px; background:none; border:none; padding:9px 3px 8px; display:flex; flex-direction:column;
+  display:flex; padding-bottom:env(safe-area-inset-bottom); z-index:40;}
+.nav-btn{flex:1; min-width:0; background:none; border:none; padding:9px 2px 8px; display:flex; flex-direction:column;
   align-items:center; gap:3px; cursor:pointer; color:#A6AC9B;}
 .nav-btn.active{color:var(--forest);}
 .nav-btn svg{width:21px; height:21px;}
-.nav-label{font-size:9px; font-weight:600;}
+.nav-label{font-size:10px; font-weight:600;}
 .nav-btn.active .nav-label{font-weight:700;}
 
 .chips{display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;}
@@ -234,6 +233,8 @@ try{ const raw = localStorage.getItem('gv_fattureNeveStagioni'); DB.fattureNeveS
 
 let annoAttivo = null;
 try{ const raw = localStorage.getItem('gv_annoAttivo'); annoAttivo = raw ? JSON.parse(raw) : null; }catch(e){ annoAttivo = null; }
+let stagioneSci = null;
+try{ const raw = localStorage.getItem('gv_stagioneSci'); stagioneSci = raw ? JSON.parse(raw) : null; }catch(e){ stagioneSci = null; }
 let stagioneAttiva = null;
 try{ const raw = localStorage.getItem('gv_stagioneAttiva'); stagioneAttiva = raw ? JSON.parse(raw) : null; }catch(e){ stagioneAttiva = null; }
 
@@ -254,6 +255,7 @@ function persist(k){
   }catch(e){ console.error(e); }
 }
 function persistAnnoAttivo(){ try{ localStorage.setItem('gv_annoAttivo', JSON.stringify(annoAttivo)); }catch(e){ console.error(e); } }
+function persistStagioneSci(){ try{ localStorage.setItem('gv_stagioneSci', JSON.stringify(stagioneSci)); }catch(e){ console.error(e); } }
 function persistStagioneAttiva(){ try{ localStorage.setItem('gv_stagioneAttiva', JSON.stringify(stagioneAttiva)); }catch(e){ console.error(e); } }
 
 // DB.interventi / DB.privatiLavori / DB.benzina / DB.fatture puntano sempre al contenitore dell'anno attivo,
@@ -271,12 +273,12 @@ Object.defineProperty(DB, 'leleLavori', {
   set(v){ DB.leleLavoriAnni[annoAttivo] = v; }
 });
 Object.defineProperty(DB, 'sci', {
-  get(){ if(!DB.sciStagioni[stagioneAttiva]) DB.sciStagioni[stagioneAttiva]=[]; return DB.sciStagioni[stagioneAttiva]; },
-  set(v){ DB.sciStagioni[stagioneAttiva] = v; }
+  get(){ if(!DB.sciStagioni[stagioneSci]) DB.sciStagioni[stagioneSci]=[]; return DB.sciStagioni[stagioneSci]; },
+  set(v){ DB.sciStagioni[stagioneSci] = v; }
 });
 Object.defineProperty(DB, 'sciPag', {
-  get(){ if(!DB.sciPagamenti[stagioneAttiva]) DB.sciPagamenti[stagioneAttiva]={}; return DB.sciPagamenti[stagioneAttiva]; },
-  set(v){ DB.sciPagamenti[stagioneAttiva] = v; }
+  get(){ if(!DB.sciPagamenti[stagioneSci]) DB.sciPagamenti[stagioneSci]={}; return DB.sciPagamenti[stagioneSci]; },
+  set(v){ DB.sciPagamenti[stagioneSci] = v; }
 });
 Object.defineProperty(DB, 'benzina', {
   get(){ if(!DB.benzinaAnni[annoAttivo]) DB.benzinaAnni[annoAttivo]=[]; return DB.benzinaAnni[annoAttivo]; },
@@ -395,6 +397,7 @@ if(!DB.leleLavoriAnni[annoAttivo]) DB.leleLavoriAnni[annoAttivo] = [];
 if(!DB.benzinaAnni[annoAttivo]) DB.benzinaAnni[annoAttivo] = [];
 if(!DB.privatiAccontiAnni[annoAttivo]) DB.privatiAccontiAnni[annoAttivo] = [];
 if(!stagioneAttiva) stagioneAttiva = calcolaStagioneDa(todayISO());
+if(!stagioneSci) stagioneSci = calcolaStagioneDa(todayISO());
 if(!DB.neveStagioni[stagioneAttiva]) DB.neveStagioni[stagioneAttiva] = [];
 (function migraSciInStagioni(){
   try{
@@ -551,6 +554,7 @@ const ICONS = {
   privati:'<rect x="4" y="8" width="16" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   benzina:'<path d="M5 21V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="3" y1="21" x2="15" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0v-6.5L19.5 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="7" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.6"/>',
   neve:'<line x1="12" y1="3" x2="12" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="4.5" y1="7" x2="19.5" y2="17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="19.5" y1="7" x2="4.5" y2="17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 3l-1.8 1.8M12 3l1.8 1.8M12 21l-1.8-1.8M12 21l1.8-1.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  menu:'<rect x="4" y="4" width="6.5" height="6.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   sci:'<path d="M3 17.5 17.8 10.6q1.7-.8 2.8.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 21 20 14.1q1.7-.8 2.8.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="8.5" y1="4.5" x2="11.5" y2="13.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="15" y1="3.5" x2="16.8" y2="10.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   lele:'<path d="M8.5 15.5 4 20l0 0a1.4 1.4 0 0 0 2 2l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.2 13.8 10 10.6M18.8 3.7a4 4 0 0 1-5 5.2L9.4 13.3a1.6 1.6 0 0 1-2.3 0l-.4-.4a1.6 1.6 0 0 1 0-2.3l4.4-4.4a4 4 0 0 1 5.2-5l-2.6 2.6a1.3 1.3 0 0 0 0 1.9l.9.9a1.3 1.3 0 0 0 1.9 0Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
 };
@@ -577,26 +581,78 @@ function render(){
 }
 function setTab(t){ TAB=t; openCondoId=null; showAllHome=false; render(); document.getElementById('content').scrollTop=0; }
 
+// tutte le pagine; nella barra in basso ne stanno solo alcune, le altre si aprono da "Altro"
+const TABS_ALL = [
+  {id:'home', label:'Home', icon:ICONS.home},
+  {id:'registro', label:'Registro', icon:ICONS.registro},
+  {id:'condomini', label:'Condomini', icon:ICONS.condomini},
+  {id:'macchine', label:'Macchine', icon:ICONS.macchine},
+  {id:'privati', label:'Privati', icon:ICONS.privati},
+  {id:'benzina', label:'Benzina', icon:ICONS.benzina},
+  {id:'neve', label:'Neve', icon:ICONS.neve},
+  {id:'sci', label:'Sci', icon:ICONS.sci},
+  {id:'lele', label:'Lele', icon:ICONS.lele},
+  {id:'totali', label:'Totali', icon:ICONS.totali},
+];
+const PADRE_TAB = {resoconto:'condomini', resocontoPrivati:'privati', resocontoNeve:'neve', resocontoLele:'lele'};
+const BARRA_DEFAULT = ['home','registro','condomini','lele'];
+let barraTabs = (function(){
+  try{
+    const r = JSON.parse(localStorage.getItem('gv_barraTab')||'null');
+    if(Array.isArray(r)){ const v = r.filter(id=> TABS_ALL.some(t=>t.id===id)).slice(0,5); if(v.length) return v; }
+  }catch(e){}
+  return BARRA_DEFAULT.slice();
+})();
+
 function renderNav(){
-  const tabs = [
-    {id:'home', label:'Home', icon:ICONS.home},
-    {id:'registro', label:'Registro', icon:ICONS.registro},
-    {id:'condomini', label:'Condomini', icon:ICONS.condomini},
-    {id:'macchine', label:'Macchine', icon:ICONS.macchine},
-    {id:'privati', label:'Privati', icon:ICONS.privati},
-    {id:'benzina', label:'Benzina', icon:ICONS.benzina},
-    {id:'neve', label:'Neve', icon:ICONS.neve},
-    {id:'sci', label:'Sci', icon:ICONS.sci},
-    {id:'lele', label:'Lele', icon:ICONS.lele},
-    {id:'totali', label:'Totali', icon:ICONS.totali},
-  ];
-  document.getElementById('nav').innerHTML = tabs.map(t=>`
-    <button class="nav-btn ${TAB===t.id?'active':''}" onclick="setTab('${t.id}')">
+  const attivo = PADRE_TAB[TAB] || TAB;
+  const inBarra = barraTabs.map(id=> TABS_ALL.find(t=>t.id===id)).filter(Boolean);
+  const altroAttivo = !barraTabs.includes(attivo);
+  document.getElementById('nav').innerHTML = inBarra.map(t=>`
+    <button class="nav-btn ${attivo===t.id?'active':''}" onclick="setTab('${t.id}')">
       <svg viewBox="0 0 24 24">${t.icon}</svg>
       <span class="nav-label">${t.label}</span>
-    </button>`).join('');
-  const att = document.querySelector('#nav .nav-btn.active');
-  if(att && att.scrollIntoView){ try{ att.scrollIntoView({inline:'nearest', block:'nearest'}); }catch(e){} }
+    </button>`).join('') + `
+    <button class="nav-btn ${altroAttivo?'active':''}" onclick="apriMenuPagine()">
+      <svg viewBox="0 0 24 24">${ICONS.menu}</svg>
+      <span class="nav-label">Altro</span>
+    </button>`;
+}
+function apriMenuPagine(){
+  const attivo = PADRE_TAB[TAB] || TAB;
+  const stile = on => `display:flex; flex-direction:column; align-items:center; gap:7px; padding:15px 4px 12px; border:none; border-radius:14px; font-size:13px; font-weight:600; cursor:pointer; ${on?'background:var(--forest); color:#fff;':'background:var(--sage-light); color:var(--forest-deep);'}`;
+  openSheet('Pagine', `
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px">
+      ${TABS_ALL.map(t=>`<button style="${stile(attivo===t.id)}" onclick="closeSheet(); setTab('${t.id}')">
+        <svg viewBox="0 0 24 24" style="width:26px; height:26px">${t.icon}</svg>${t.label}</button>`).join('')}
+    </div>
+    <button class="btn btn-ghost" onclick="apriPersonalizzaBarra()">Scegli le voci della barra</button>
+  `);
+}
+let barraTmp = [];
+function apriPersonalizzaBarra(){ barraTmp = barraTabs.slice(); disegnaPersonalizzaBarra(); }
+function disegnaPersonalizzaBarra(){
+  openSheet('Voci della barra', `
+    <div style="font-size:13px; color:var(--ink-soft); margin-bottom:16px; line-height:1.5">
+      Scegli fino a 5 pagine da tenere sempre in basso. Tutte le altre le trovi sotto "Altro".
+    </div>
+    <div class="chips" style="margin-bottom:18px">
+      ${TABS_ALL.map(t=>`<button class="chip ${barraTmp.includes(t.id)?'active':''}" onclick="toggleBarraTab('${t.id}')">${t.label}</button>`).join('')}
+    </div>
+    <button class="btn btn-primary" onclick="salvaBarra()">Salva</button>
+  `);
+}
+function toggleBarraTab(id){
+  const i = barraTmp.indexOf(id);
+  if(i>=0) barraTmp.splice(i,1);
+  else { if(barraTmp.length>=5){ toast('Massimo 5 voci'); return; } barraTmp.push(id); }
+  disegnaPersonalizzaBarra();
+}
+function salvaBarra(){
+  if(!barraTmp.length){ toast('Scegli almeno una voce'); return; }
+  barraTabs = TABS_ALL.map(t=>t.id).filter(id=> barraTmp.includes(id));
+  try{ localStorage.setItem('gv_barraTab', JSON.stringify(barraTabs)); }catch(e){ console.error(e); }
+  closeSheet(); render();
 }
 
 // ---------- HOME ----------
@@ -2379,7 +2435,7 @@ function renderTotali(){
 
   return `<div class="page">
     <div class="display page-title">Totali</div>
-    <div class="page-sub">anno ${annoAttivo}${stagioneAttiva?` · neve e sci ${esc(stagioneAttiva)}`:''}</div>
+    <div class="page-sub">anno ${annoAttivo}${` · neve ${esc(stagioneAttiva)} · sci ${esc(stagioneSci)}`}</div>
     <div class="card" style="display:flex; justify-content:space-between; align-items:center">
       <div>
         <div class="section-title" style="margin-bottom:4px">Anno di lavoro</div>
@@ -2602,14 +2658,14 @@ function impostaAnnoAttivo(anno){
 
 // ---------- selettore stagione neve ----------
 function stagioniDisponibili(){
-  const set = new Set([...Object.keys(DB.neveStagioni||{}), ...Object.keys(DB.sciStagioni||{}), ...Object.keys(DB.sciPagamenti||{}), stagioneAttiva, calcolaStagioneDa(todayISO())]);
+  const set = new Set([...Object.keys(DB.neveStagioni||{}), stagioneAttiva, calcolaStagioneDa(todayISO())]);
   return Array.from(set).filter(Boolean).sort((a,b)=> b.localeCompare(a));
 }
 function apriSelettoreStagione(){
   const stagioni = stagioniDisponibili();
-  openSheet('Stagione', `
+  openSheet('Stagione neve', `
     <div style="font-size:13px; color:var(--ink-soft); margin-bottom:16px; line-height:1.5">
-      Sgombero neve e scuola sci sono raggruppati per stagione invernale (es. novembre-dicembre insieme a gennaio-febbraio dell'anno dopo), non per anno solare: così non si spezzano mai a metà. La stagione scelta vale per tutte e due.
+      Lo sgombero neve è raggruppato per stagione invernale (es. novembre-dicembre insieme a gennaio-febbraio dell'anno dopo), non per anno solare — così non si spezza mai a metà.
     </div>
     <div class="chips" style="margin-bottom:18px">
       ${stagioni.map(s=>`<button class="chip ${s===stagioneAttiva?'active':''}" onclick="impostaStagioneAttiva('${s}')">${s}</button>`).join('')}
@@ -3035,6 +3091,41 @@ function delBenzina(id){
   render();
 }
 
+// ---------- selettore stagione sci (separato da quello della neve) ----------
+function stagioniSciDisponibili(){
+  const set = new Set([...Object.keys(DB.sciStagioni||{}), ...Object.keys(DB.sciPagamenti||{}), stagioneSci, calcolaStagioneDa(todayISO())]);
+  return Array.from(set).filter(Boolean).sort((a,b)=> b.localeCompare(a));
+}
+function apriSelettoreStagioneSci(){
+  const stagioni = stagioniSciDisponibili();
+  openSheet('Stagione scuola sci', `
+    <div style="font-size:13px; color:var(--ink-soft); margin-bottom:16px; line-height:1.5">
+      Le ore e la paga della scuola sci sono raggruppate per stagione (es. novembre-dicembre insieme a gennaio-aprile dell'anno dopo). Questa scelta riguarda solo lo sci: la stagione della neve resta separata.
+    </div>
+    <div class="chips" style="margin-bottom:18px">
+      ${stagioni.map(st=>`<button class="chip ${st===stagioneSci?'active':''}" onclick="impostaStagioneSci('${st}')">${st}</button>`).join('')}
+    </div>
+    <div class="field"><div class="field-label">Apri o crea un'altra stagione</div>
+      <div style="display:flex; gap:8px">
+        <input class="input" id="f-nuova-stagione-sci" placeholder="es. 2027/2028" style="flex:1">
+        <button class="btn btn-subtle btn-auto" onclick="apriStagioneSciDaCampo()">Apri</button>
+      </div>
+    </div>
+  `);
+}
+function apriStagioneSciDaCampo(){
+  const v = document.getElementById('f-nuova-stagione-sci').value.trim();
+  if(!v) return;
+  impostaStagioneSci(v);
+}
+function impostaStagioneSci(stagione){
+  stagioneSci = stagione;
+  persistStagioneSci();
+  if(!DB.sciStagioni[stagione]) DB.sciStagioni[stagione] = [];
+  closeSheet();
+  render();
+}
+
 // ---------- SCUOLA SCI: ore per sci club, scuola sci e sci club extra (pagate in modo diverso, quindi sempre separate) ----------
 const CATEGORIE_SCI = [
   {id:'sciclub', label:'Sci club'},
@@ -3068,7 +3159,7 @@ function setSciPagamento(campo, valore){
 function renderSci(){
   const lista = DB.sci.slice().sort((a,b)=> (a.data||'')<(b.data||'') ? 1 : ((a.data||'')>(b.data||'') ? -1 : 0));
   const meseCorrente = todayISO().slice(0,7);
-  const stagioneCorrente = stagioneAttiva===calcolaStagioneDa(todayISO());
+  const stagioneCorrente = stagioneSci===calcolaStagioneDa(todayISO());
   const sommaOre = arr=> arr.reduce((t,x)=> t+(Number(x.ore)||0), 0);
   const r = sciRiepilogo();
   const p = DB.sciPag;
@@ -3099,16 +3190,16 @@ function renderSci(){
 
   let html = `<div class="page">
     <div class="display page-title">Scuola sci</div>
-    <div class="page-sub">${DB.sci.length} registrazioni nella stagione ${esc(stagioneAttiva)}</div>
+    <div class="page-sub">${DB.sci.length} registrazioni nella stagione ${esc(stagioneSci)}</div>
     <div class="card" style="display:flex; justify-content:space-between; align-items:center">
       <div>
         <div class="section-title" style="margin-bottom:4px">Stagione</div>
-        <div class="name" style="font-size:20px">${esc(stagioneAttiva)}</div>
+        <div class="name" style="font-size:20px">${esc(stagioneSci)}</div>
       </div>
-      <button class="btn btn-subtle btn-auto" onclick="apriSelettoreStagione()">Cambia stagione</button>
+      <button class="btn btn-subtle btn-auto" onclick="apriSelettoreStagioneSci()">Cambia stagione</button>
     </div>
     <button class="btn btn-primary" style="margin:14px 0 16px" onclick="openSciForm()">＋ Registra ore</button>
-    <div class="section-title">Ore e paga · stagione ${esc(stagioneAttiva)}</div>`;
+    <div class="section-title">Ore e paga · stagione ${esc(stagioneSci)}</div>`;
 
   CATEGORIE_SCI.forEach(c=>{
     const tutte = DB.sci.filter(x=>x.categoria===c.id);
@@ -3131,7 +3222,7 @@ function renderSci(){
   });
 
   html += `<div class="card" style="background:var(--sage-light)">
-    <div class="section-title" style="margin-bottom:4px">Totale sci stagione ${esc(stagioneAttiva)}</div>
+    <div class="section-title" style="margin-bottom:4px">Totale sci stagione ${esc(stagioneSci)}</div>
     <div style="font-weight:700; font-size:22px; color:var(--forest-deep)">${eur(r.totale)}</div>
     <div class="sub" style="margin-top:4px">Questa cifra va nei Totali, nella sezione bonifico.</div>
   </div>`;
@@ -3258,7 +3349,7 @@ const db = getFirestore(app);
 
 // ---- Sincronizzazione: ogni chiave "gv_" dell'app diventa un documento nella raccolta "gestionale" ----
 const COLL = 'gestionale';
-const ESCLUSE = new Set(['gv_annoAttivo','gv_stagioneAttiva','gv_ultimoBackup']); // preferenze di questo telefono
+const ESCLUSE = new Set(['gv_annoAttivo','gv_stagioneAttiva','gv_stagioneSci','gv_barraTab','gv_ultimoBackup']); // preferenze di questo telefono
 const tracciata = k => typeof k==='string' && k.indexOf('gv_')===0 && !ESCLUSE.has(k);
 const hash = s => { let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return s.length+':'+h; };
 const setOrig = Storage.prototype.setItem;
