@@ -830,7 +830,7 @@ function renderHome(){
 }
 
 function openInterventoForm(presetCondoId, existing){
-  const condo = DB.condomini;
+  const condo = condominiOrdinati();
   const condoSelezionato = existing ? existing.condominioId : presetCondoId;
   const options = condo.length===0 ? '<option value="">Nessun condominio salvato</option>' :
     condo.map(c=>`<option value="${c.id}" ${condoSelezionato===c.id?'selected':''}>${esc(c.nome)}</option>`).join('');
@@ -1003,7 +1003,7 @@ function renderRegistro(){
     </div>
     <select class="input" style="margin:14px 0 16px" onchange="filtroRegistro=this.value; openRegistroGroupId = this.value!=='tutti' ? this.value : null; render()">
       <option value="tutti">Tutti i condomini</option>
-      ${DB.condomini.map(c=>`<option value="${c.id}" ${filtroRegistro===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}
+      ${condominiOrdinati().map(c=>`<option value="${c.id}" ${filtroRegistro===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}
     </select>`;
 
   if(DB.interventi.length===0){
@@ -1011,7 +1011,7 @@ function renderRegistro(){
   }
 
   const idsValidi = new Set(DB.condomini.map(c=>c.id));
-  const gruppi = DB.condomini
+  const gruppi = condominiOrdinati()
     .map(c=>({ id:c.id, nome:c.nome, items: DB.interventi.filter(i=>i.condominioId===c.id) }))
     .filter(g=> filtroRegistro==='tutti' || g.id===filtroRegistro);
 
@@ -1051,6 +1051,11 @@ function delIntervento(id){
 }
 
 // ---------- CONDOMINI ----------
+// elenco condomini sempre in ordine alfabetico (A-Z), senza badare a maiuscole e accenti
+function condominiOrdinati(){
+  return DB.condomini.slice().sort((a,b)=> String(a.nome||'').localeCompare(String(b.nome||''), 'it', {sensitivity:'base', numeric:true}));
+}
+
 function renderCondomini(){
   let html = `<div class="page">
     <div class="display page-title">Condomini</div>
@@ -1062,11 +1067,10 @@ function renderCondomini(){
     html += `<div class="empty">Aggiungi qui i condomini che segui, con indirizzo, referente e frequenza di taglio.</div>`;
   }
 
-  DB.condomini.forEach((c, idx)=>{
+  condominiOrdinati().forEach((c, idx)=>{
     const st = statoCondo(c);
     const storia = DB.interventi.filter(i=>i.condominioId===c.id).sort((a,b)=>a.data<b.data?1:-1);
     const isOpen = openCondoId===c.id;
-    const isFirst = idx===0, isLast = idx===DB.condomini.length-1;
     const fattureCondoLista = DB.fatture.filter(f=>f.condominioId===c.id);
     const haPreventivoFatturato = fattureCondoLista.some(f=>f.tipo==='Preventivo');
     const puntiniArr = [];
@@ -1079,10 +1083,6 @@ function renderCondomini(){
     const puntiniFattura = puntiniArr.join('');
     html += `<div class="card" style="padding:0; overflow:hidden">
       <div style="display:flex; align-items:center; padding:13px 14px; gap:10px">
-        <div class="reorder-col">
-          <button class="reorder-btn" ${isFirst?'disabled':''} onclick="moveCondo('${c.id}',-1)">▲</button>
-          <button class="reorder-btn" ${isLast?'disabled':''} onclick="moveCondo('${c.id}',1)">▼</button>
-        </div>
         <div style="flex:1; cursor:pointer; text-align:left" onclick="openCondoId = openCondoId==='${c.id}' ? null : '${c.id}'; render()">
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap">
             <div class="name">${esc(c.nome)}</div>
@@ -1186,7 +1186,7 @@ function renderCondomini(){
 }
 // ---------- RESOCONTO CONTABILE CONDOMINI ----------
 function renderResocontoCondomini(){
-  const condominiInclusi = DB.condomini.filter(c=> !c.escludiResoconto && !c.contaComePrivato);
+  const condominiInclusi = condominiOrdinati().filter(c=> !c.escludiResoconto && !c.contaComePrivato);
   const idInclusi = new Set(condominiInclusi.map(c=>c.id));
   const interventiInclusi = DB.interventi.filter(i=> idInclusi.has(i.condominioId));
 
@@ -1195,7 +1195,7 @@ function renderResocontoCondomini(){
   const totaleBenzina = costoBenzinaInterventi(interventiInclusi);
   const mediaOraria = totaleOre>0 ? (totalePreventivi-totaleBenzina)/totaleOre : null;
 
-  const esclusi = DB.condomini.filter(c=> c.escludiResoconto || c.contaComePrivato);
+  const esclusi = condominiOrdinati().filter(c=> c.escludiResoconto || c.contaComePrivato);
 
   let html = `<div class="page">
     <button class="btn btn-ghost btn-auto" style="margin-bottom:14px; padding:8px 14px; font-size:13px" onclick="setTab('condomini')">← Condomini</button>
@@ -1221,7 +1221,7 @@ function renderResocontoCondomini(){
 }
 
 function renderResocontoNeve(){
-  const condominiInclusi = DB.condomini.filter(c=> !c.escludiResoconto && !c.contaComePrivato);
+  const condominiInclusi = condominiOrdinati().filter(c=> !c.escludiResoconto && !c.contaComePrivato);
   const idInclusi = new Set(condominiInclusi.map(c=>c.id));
   const neveInclusa = DB.neve.filter(n=> idInclusi.has(n.condominioId));
   const fattureInclusi = DB.fattureNeve.filter(f=> idInclusi.has(f.condominioId));
@@ -1235,7 +1235,7 @@ function renderResocontoNeve(){
   const pagatoTotale = fattureInclusi.filter(f=>f.pagata).reduce((s,f)=> s+(Number(f.importo)||0), 0);
   const daIncassare = fatturatoTotale - pagatoTotale;
 
-  const esclusi = DB.condomini.filter(c=> c.escludiResoconto || c.contaComePrivato);
+  const esclusi = condominiOrdinati().filter(c=> c.escludiResoconto || c.contaComePrivato);
 
   let html = `<div class="page">
     <button class="btn btn-ghost btn-auto" style="margin-bottom:14px; padding:8px 14px; font-size:13px" onclick="setTab('neve')">← Neve</button>
@@ -1652,7 +1652,7 @@ function renderResocontoPrivati(){
 
   const esclusi = DB.privatiClienti.filter(c=> c.escludiResoconto);
 
-  const condominiComePrivati = DB.condomini.filter(c=> c.contaComePrivato);
+  const condominiComePrivati = condominiOrdinati().filter(c=> c.contaComePrivato);
   const idCondominiComePrivati = new Set(condominiComePrivati.map(c=>c.id));
   const interventiCondominiComePrivati = DB.interventi.filter(i=> idCondominiComePrivati.has(i.condominioId));
   const preventivoCondomini = condominiComePrivati.reduce((s,c)=> s+(Number(c.preventivo)||0), 0);
@@ -2696,14 +2696,14 @@ function renderNeve(){
     <button class="btn btn-primary" style="margin:10px 0 16px" onclick="openNeveForm(null)">＋ Registra sgombero neve</button>
     <select class="input" style="margin-bottom:16px" onchange="filtroNeve=this.value; openNeveGroupId = this.value!=='tutti' ? this.value : null; render()">
       <option value="tutti">Tutti i condomini</option>
-      ${DB.condomini.map(c=>`<option value="${c.id}" ${filtroNeve===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}
+      ${condominiOrdinati().map(c=>`<option value="${c.id}" ${filtroNeve===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}
     </select>`;
 
   if(DB.neve.length===0){
     html += `<div class="empty">Registra qui gli interventi di sgombero neve, spalatura e sale — separati dagli interventi di manutenzione del verde.</div>`;
   }
 
-  const gruppi = DB.condomini
+  const gruppi = condominiOrdinati()
     .map(c=>({ condo:c, items: DB.neve.filter(n=>n.condominioId===c.id) }))
     .filter(g=> filtroNeve==='tutti' || g.condo.id===filtroNeve);
 
@@ -2841,7 +2841,7 @@ function renderGruppoNeve(condo, items){
 }
 
 function openNeveForm(presetCondoId, existing){
-  const condo = DB.condomini;
+  const condo = condominiOrdinati();
   const condoSelezionato = existing ? existing.condominioId : presetCondoId;
   const options = condo.length===0 ? '<option value="">Nessun condominio salvato</option>' :
     condo.map(c=>`<option value="${c.id}" ${condoSelezionato===c.id?'selected':''}>${esc(c.nome)}</option>`).join('');
