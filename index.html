@@ -2382,11 +2382,15 @@ function renderTotali(){
   const somma = (arr, fn) => arr.reduce((s,x)=> s+(Number(fn(x))||0), 0);
   const imp = f => f.importo;
 
-  // Condomini: fatture dell'anno (e della stagione neve attiva)
-  const fCond = DB.fatture;
-  const fNeve = stagioneAttiva ? DB.fattureNeve : [];
+  // Condomini: fatture dell'anno (e della stagione neve attiva). Quelli "contati come privati" vanno nel gruppo dei privati
+  const idCP = new Set(DB.condomini.filter(c=>c.contaComePrivato).map(c=>c.id));
+  const fCond = DB.fatture.filter(f=> !idCP.has(f.condominioId));
+  const fNeve = stagioneAttiva ? DB.fattureNeve.filter(f=> !idCP.has(f.condominioId)) : [];
+  const fCondPriv = DB.fatture.filter(f=> idCP.has(f.condominioId)).concat(stagioneAttiva ? DB.fattureNeve.filter(f=> idCP.has(f.condominioId)) : []);
   const condTot = somma(fCond, imp), condInc = somma(fCond.filter(f=>f.pagata), imp);
   const neveTot = somma(fNeve, imp), neveInc = somma(fNeve.filter(f=>f.pagata), imp);
+  const condPrivTot = somma(fCondPriv, imp), condPrivInc = somma(fCondPriv.filter(f=>f.pagata), imp);
+  const nomiCP = DB.condomini.filter(c=>c.contaComePrivato).sort((a,b)=> String(a.nome||'').localeCompare(String(b.nome||''),'it',{sensitivity:'base'})).map(c=>esc(c.nome)).join(', ');
 
   // Lele: fatture per metodo di pagamento
   const lele = m => { const fs = DB.fattureLele.filter(f=>(f.metodo||'')===m);
@@ -2403,7 +2407,7 @@ function renderTotali(){
 
   const sci = sciRiepilogo();
   const gruppoA = condTot + neveTot + bon.tot + sci.totale;
-  const gruppoB = privTot + nero.tot;
+  const gruppoB = privTot + condPrivTot + nero.tot;
 
   const riga = (lab, val, sub) => `<div class="row-between" style="padding:10px 0; border-top:1px solid var(--line)">
       <div><div style="font-size:14px">${lab}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>
@@ -2417,6 +2421,7 @@ function renderTotali(){
     + (sci.extra.importo>0.005 ? riga('Sci club extra', sci.extra.importo, sci.extra.orario!==null ? `${fmtOre(sci.ore.extra)} h · € ${sci.extra.orario.toFixed(2)}/h` : '') : '');
   const righeB = riga('Privati · lavori saldati', saldatiTot)
     + riga('Privati · acconti ricevuti', accTot)
+    + (idCP.size ? riga('Condomini contati come privati', condPrivTot, `${nomiCP} · incassato € ${condPrivInc.toFixed(2)}`) : '')
     + riga('Lele · in nero', nero.tot, `incassato € ${nero.inc.toFixed(2)}`)
     + `<button class="btn btn-ghost btn-auto" style="margin-top:14px; font-size:12px; padding:6px 12px; opacity:.7" onclick="openEmergenza()">⌫</button>`;
 
