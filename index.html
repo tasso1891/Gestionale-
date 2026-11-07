@@ -673,7 +673,8 @@ function htmlCloud(){
     <div class="section-title" style="margin-bottom:4px">☁ Salvataggio online</div>
     <div style="font-size:13px; color:var(--ink-soft); line-height:1.5; margin-bottom:10px">${esc(st.testo)}${connesso?' · '+esc(st.email):''}</div>
     ${connesso
-      ? `<button class="btn btn-subtle" style="margin-bottom:8px" onclick="window.cloud.sincronizzaOra().then(()=>{ closeSheet(); render(); })">🔄 Sincronizza ora</button>
+      ? `<button class="btn btn-subtle" style="margin-bottom:8px" onclick="apriCopieAutomatiche()">🕘 Copie automatiche</button>
+         <button class="btn btn-subtle" style="margin-bottom:8px" onclick="window.cloud.sincronizzaOra().then(()=>{ closeSheet(); render(); })">🔄 Sincronizza ora</button>
          <button class="btn btn-ghost" onclick="window.cloud.esci(); closeSheet()">Esci dall'account</button>`
       : `<button class="btn btn-primary" onclick="closeSheet(); window.cloud.accedi()">Accedi</button>`}
   </div>`;
@@ -736,8 +737,9 @@ function chiediRipristino(){
     <button class="btn btn-ghost" onclick="closeSheet()">Annulla</button>
   `);
 }
-function eseguiRipristino(){
+async function eseguiRipristino(){
   const b = backupDaRipristinare; if(!b) return;
+  try{ if(window.cloud && window.cloud.copiaSicurezza){ toast('Salvo una copia di sicurezza…'); await Promise.race([window.cloud.copiaSicurezza(), new Promise(r=>setTimeout(r,12000))]); } }catch(e){ console.error(e); }
   try{
     localStorage.setItem('sync_forcePush','1');
     const vecchie = [];
@@ -2598,6 +2600,49 @@ function esportaResocontoLelePDF(){
   `);
 }
 
+// ---------- copie automatiche online: elenco e ripristino ----------
+async function apriCopieAutomatiche(){
+  openSheet('Copie automatiche', `
+    <div style="font-size:13px; color:var(--ink-soft); line-height:1.5; margin-bottom:14px">
+      Ogni giorno, la prima volta che apri l'app, si salva online una copia di tutti i dati. Le ultime 20 restano disponibili. Se per errore cancelli o cambi qualcosa, puoi tornare a una copia.
+    </div>
+    <div id="lista-copie" style="font-size:14px">Carico…</div>
+  `);
+  const box = ()=> document.getElementById('lista-copie');
+  try{
+    const copie = await window.cloud.elencoCopie();
+    if(!box()) return;
+    if(!copie.length){ box().innerHTML = `<div class="empty">Ancora nessuna copia: la prima si crea oggi, appena l'app si sincronizza.</div>`; return; }
+    box().innerHTML = copie.map(c=>{
+      const giorno = fmtData(String(c.id).slice(0,10));
+      const ora = c.creata ? new Date(c.creata).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) : '';
+      const titolo = c.tipo==='sicurezza' ? 'Prima di un ripristino' : 'Copia del giorno';
+      return `<div class="card" style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+        <div><div class="name" style="font-size:16px">${esc(giorno)}</div>
+        <div class="sub">${titolo}${ora?' · '+ora:''}</div></div>
+        <button class="btn btn-subtle btn-auto" onclick="chiediRipristinoCopia('${esc(c.id)}')">Ripristina</button>
+      </div>`;
+    }).join('');
+  }catch(e){
+    console.error(e);
+    if(box()) box().innerHTML = `<div class="empty">Non riesco a leggere le copie. Controlla la connessione e che le regole del database siano aggiornate.</div>`;
+  }
+}
+function chiediRipristinoCopia(id){
+  openSheet('Ripristina copia', `
+    <div style="font-size:14px; line-height:1.5; margin-bottom:16px">
+      Stai per tornare ai dati della copia del <b>${esc(fmtData(String(id).slice(0,10)))}</b>. Tutto quello che c'è adesso viene sostituito, e anche gli altri telefoni si allineeranno. Prima di sostituire salvo comunque una copia di sicurezza dello stato di adesso.
+    </div>
+    <button class="btn btn-primary" style="margin-bottom:10px" onclick="eseguiRipristinoCopia('${esc(id)}')">Sì, ripristina</button>
+    <button class="btn btn-ghost" onclick="apriCopieAutomatiche()">Annulla</button>
+  `);
+}
+async function eseguiRipristinoCopia(id){
+  toast('Ripristino in corso…');
+  try{ await window.cloud.ripristinaCopia(id); }
+  catch(e){ console.error(e); toast('Ripristino non riuscito'); }
+}
+
 // ---------- selettore anno di lavoro ----------
 function anniDisponibili(){
   const set = new Set([
@@ -3325,7 +3370,7 @@ if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCt9D9Uomu3rNhDq1qDICuWnUdZJjmLlow",
@@ -3374,6 +3419,7 @@ async function sincronizza(){
   if(!utente || remoto===null) return;
   if(occupato){ richiesto = true; return; }
   occupato = true;
+  let riuscita = false;
   const meta = leggiMeta();
   try{
     const locali = [];
@@ -3385,6 +3431,7 @@ async function sincronizza(){
       for(const k of locali){ await spingi(k, meta); }
       localStorage.removeItem('sync_forcePush');
       stato.testo = 'sincronizzato alle '+ora();
+      riuscita = true;
       return;
     }
 
@@ -3410,6 +3457,7 @@ async function sincronizza(){
       if(!m || hash(loc)!==m.h) await spingi(k, meta);
     }
     stato.testo = 'sincronizzato alle '+ora();
+    riuscita = true;
     if(cambiato) ricarica();
   }catch(e){
     console.error(e);
@@ -3418,7 +3466,64 @@ async function sincronizza(){
     salvaMeta(meta);
     occupato = false;
     if(richiesto){ richiesto = false; setTimeout(sincronizza, 500); }
+    else if(riuscita){ copiaGiornaliera(); }
   }
+}
+
+
+// ---- Copie automatiche: una al giorno (ultime 20 conservate) + una di sicurezza prima di ogni ripristino ----
+const MAX_COPIE = 20;
+const due = n => String(n).padStart(2,'0');
+const oggiISO = () => { const d=new Date(); return d.getFullYear()+'-'+due(d.getMonth()+1)+'-'+due(d.getDate()); };
+async function creaCopia(id, tipo){
+  const chiavi = [];
+  for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(tracciata(k)) chiavi.push(k); }
+  await conTimeout(setDoc(doc(db,'copie',id),{ creata: Date.now(), tipo, chiavi: chiavi.length, by: (utente && utente.email) || '' }));
+  for(let i=0;i<chiavi.length;i+=8){
+    await Promise.all(chiavi.slice(i,i+8).map(k=> conTimeout(setDoc(doc(db,'copie',id,'dati',k),{ v: localStorage.getItem(k) }))));
+  }
+}
+async function potaCopie(){
+  const snap = await conTimeout(getDocs(collection(db,'copie')));
+  const ids = snap.docs.map(d=>d.id).sort().reverse();
+  for(const id of ids.slice(MAX_COPIE)){
+    const sub = await conTimeout(getDocs(collection(db,'copie',id,'dati')));
+    for(const d of sub.docs) await conTimeout(deleteDoc(d.ref || doc(db,'copie',id,'dati',d.id)));
+    await conTimeout(deleteDoc(doc(db,'copie',id)));
+  }
+}
+async function copiaGiornaliera(){
+  const oggi = oggiISO();
+  if(!utente || localStorage.getItem('sync_copiaGiorno')===oggi) return;
+  try{
+    await creaCopia(oggi,'giornaliera');
+    setOrig.call(localStorage,'sync_copiaGiorno',oggi);
+    await potaCopie();
+  }catch(e){ console.error('copia automatica', e); }
+}
+async function copiaSicurezza(){
+  if(!utente) return;
+  const d = new Date();
+  await creaCopia(oggiISO()+'_'+due(d.getHours())+due(d.getMinutes())+'-prima-ripristino','sicurezza');
+  await potaCopie();
+}
+async function elencoCopie(){
+  if(!utente) throw new Error('non connesso');
+  const snap = await conTimeout(getDocs(collection(db,'copie')));
+  return snap.docs.map(d=>({ id:d.id, ...d.data() })).sort((a,b)=> a.id<b.id?1:-1);
+}
+async function ripristinaCopia(id){
+  if(!utente) throw new Error('non connesso');
+  const sub = await conTimeout(getDocs(collection(db,'copie',id,'dati')));
+  const dati = {}; sub.docs.forEach(d=>{ dati[d.id] = d.data().v; });
+  if(!Object.keys(dati).length) throw new Error('copia vuota');
+  await copiaSicurezza();                       // prima di sostituire, salvo lo stato di adesso
+  const vecchie = [];
+  for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(tracciata(k)) vecchie.push(k); }
+  vecchie.forEach(k=> localStorage.removeItem(k));
+  Object.keys(dati).forEach(k=>{ if(tracciata(k) && typeof dati[k]==='string') setOrig.call(localStorage,k,dati[k]); });
+  setOrig.call(localStorage,'sync_forcePush','1');
+  location.reload();
 }
 
 function pianifica(){ clearTimeout(tPush); tPush = setTimeout(sincronizza, 2000); }
@@ -3488,6 +3593,8 @@ onAuthStateChanged(auth, user=>{
 window.cloud = {
   get stato(){ return stato; },
   sincronizzaOra: ()=> sincronizza(),
+  elencoCopie, ripristinaCopia,
+  copiaSicurezza: ()=> copiaSicurezza(),
   esci: ()=> signOut(auth),
   accedi: ()=> mostraLogin()
 };
