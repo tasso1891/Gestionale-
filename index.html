@@ -685,6 +685,7 @@ function apriBackup(){
     <div style="font-size:13px; color:var(--ink-soft); margin-bottom:14px; line-height:1.5">
       I dati sono salvati solo su questo telefono. Se cambi telefono o cancelli i dati del browser li perdi: fai un backup ogni tanto: copialo e incollalo in una nota o in un messaggio a te stesso. ${gg===null?'Non hai ancora fatto nessun backup.':`Ultimo backup: ${gg===0?'oggi':gg+' giorni fa'}.`}
     </div>
+    <button class="btn btn-subtle" style="margin-bottom:10px" onclick="closeSheet(); esportaExcel()">📊 Esporta tutto in Excel</button>
     <button class="btn btn-primary" style="margin-bottom:10px" onclick="copiaBackup()">📋 Copia backup</button>
     <textarea class="input" id="f-backup-copia" rows="4" readonly style="display:none; font-size:12px; margin-bottom:10px"></textarea>
     <div style="margin-bottom:18px"></div>
@@ -2380,7 +2381,7 @@ function renderTotaliFolder(id, nome, totale, righe){
     ${isOpen?`<div style="padding:0 14px 16px"><div class="collapsible-body">${righe}</div></div>`:''}
   </div>`;
 }
-function renderTotali(){
+function calcolaTotali(){
   const somma = (arr, fn) => arr.reduce((s,x)=> s+(Number(fn(x))||0), 0);
   const imp = f => f.importo;
 
@@ -2411,6 +2412,10 @@ function renderTotali(){
   const gruppoA = condTot + neveTot + bon.tot + sci.totale;
   const gruppoB = privTot + condPrivTot + nero.tot;
 
+  return {condTot, condInc, neveTot, neveInc, condPrivTot, condPrivInc, nomiCP, bon, nero, nd, saldatiTot, accTot, privTot, sci, gruppoA, gruppoB, idCP};
+}
+function renderTotali(){
+  const {condTot, condInc, neveTot, neveInc, condPrivTot, condPrivInc, nomiCP, bon, nero, nd, saldatiTot, accTot, sci, gruppoA, gruppoB, idCP} = calcolaTotali();
   const riga = (lab, val, sub) => `<div class="row-between" style="padding:10px 0; border-top:1px solid var(--line)">
       <div><div style="font-size:14px">${lab}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>
       <div style="font-weight:700; font-size:15px; color:var(--forest-deep); white-space:nowrap">€ ${val.toFixed(2)}</div></div>`;
@@ -2442,9 +2447,152 @@ function renderTotali(){
       <div style="font-weight:700; font-size:22px; color:var(--forest-deep)">€ ${(gruppoA+gruppoB).toFixed(2)}</div>
       ${nd.tot>0.005?`<div class="sub" style="margin-top:6px">Escluse fatture Lele senza metodo scelto: € ${nd.tot.toFixed(2)}</div>`:''}
     </div>
+    <button class="btn btn-subtle" style="margin-bottom:14px" onclick="esportaExcel()">📊 Esporta tutto in Excel</button>
     ${renderTotaliFolder('A', 'Condomini + bonifici Lele + sci', gruppoA, righeA)}
     ${renderTotaliFolder('B', 'Privati + nero Lele', gruppoB, righeB)}
   </div>`;
+}
+
+// ---------- ESPORTAZIONE IN EXCEL: tutti i dati, tutti gli anni, nero compreso ----------
+const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+function caricaXLSX(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((ok,ko)=>{
+    const sc = document.createElement('script'); sc.src = XLSX_URL;
+    sc.onload = ()=> window.XLSX ? ok(window.XLSX) : ko(new Error('libreria vuota'));
+    sc.onerror = ()=> ko(new Error('libreria non scaricata'));
+    document.head.appendChild(sc);
+  });
+}
+function costruisciFogliExport(){
+  const num = v => { if(v===''||v===null||v===undefined) return ''; const n = Number(String(v).replace(',','.')); return isNaN(n) ? '' : n; };
+  const sino = b => b ? 'Sì' : 'No';
+  const nome = (lista,id) => (lista.find(x=>x.id===id)||{}).nome || '';
+  const nCondo = id => nome(DB.condomini,id), nLele = id => id ? (nome(DB.leleClienti,id)||'(cliente eliminato)') : 'Fattura totale', nPriv = id => nome(DB.privatiClienti,id);
+  const nMacc = id => nome(DB.macchinari,id);
+  const idCP = new Set(DB.condomini.filter(c=>c.contaComePrivato).map(c=>c.id));
+  const chiavi = o => Object.keys(o||{});
+  const anni = Array.from(new Set([
+    ...chiavi(DB.interventiAnni), ...chiavi(DB.fattureAnni), ...chiavi(DB.fattureLeleAnni), ...chiavi(DB.leleLavoriAnni),
+    ...chiavi(DB.privatiLavoriAnni), ...chiavi(DB.privatiAccontiAnni), ...chiavi(DB.benzinaAnni), annoAttivo
+  ])).filter(Boolean).sort();
+  const stagioni = Array.from(new Set([...chiavi(DB.neveStagioni), ...chiavi(DB.fattureNeveStagioni), ...chiavi(DB.sciStagioni), ...chiavi(DB.sciPagamenti)])).filter(Boolean).sort();
+  const macchineTesto = arr => (arr||[]).map(m=> (nMacc(m.macchinaId)||'macchina')+(m.ore?': '+m.ore+' h':'')).join('; ');
+  const tipiTesto = t => Array.isArray(t) ? t.join(', ') : (t||'');
+
+  const F = {};
+  const nuovo = (k, nomeFoglio, intest) => { F[k] = { nome:nomeFoglio, righe:[intest] }; return F[k].righe; };
+  const tot = nuovo('tot','Totali per anno',['Anno','Stagione neve e sci','Fatture condomini','di cui incassato','Fatture neve','di cui incassato','Lele bonifico','di cui incassato','Scuola sci','Sci club contratto','Sci club extra','TOTALE condomini + bonifici + sci','Privati lavori saldati','Privati acconti','Condomini contati come privati','di cui incassato','Lele nero','di cui incassato','TOTALE privati + nero','TOTALE COMPLESSIVO','Lele senza metodo (esclusi)']);
+  const leleCl = nuovo('leleCl','Lele per cliente',['Anno','Cliente','Ore da fatturare','Ore già fatturate','Ore totali','€ da fatturare','Fatturato (non nero)','Pagato (non nero)','Nero']);
+  const leleLav = nuovo('leleLav','Lele interventi',['Anno','Cliente','Data','Descrizione','Ore','Importo €','Ancora da fatturare €','Stato fatturazione','Note']);
+  const fLele = nuovo('fLele','Fatture Lele',['Anno','Cliente','Numero','Tipo','Data','Importo €','Metodo','Pagata','Note']);
+  const fCond = nuovo('fCond','Fatture condomini',['Anno','Condominio','Numero','Tipo','Data','Importo €','Pagata','Contato come privato','Note']);
+  const intv = nuovo('intv','Interventi condomini',['Anno','Condominio','Data','Tipo di intervento','Ore','Ore acquisto','Macchine usate','Note','Altre note']);
+  const fNeve = nuovo('fNeve','Fatture neve',['Stagione','Condominio','Numero','Tipo','Data','Importo €','Pagata','Contato come privato','Note']);
+  const neve = nuovo('neve','Sgomberi neve',['Stagione','Condominio','Data','Tipo','Ore','Macchine usate','Note']);
+  const privL = nuovo('privL','Privati lavori',['Anno','Cliente','Data','Descrizione','Stato','Ore','Ore acquisto','Preventivo fisso €','Importo €','Note']);
+  const privA = nuovo('privA','Privati acconti',['Anno','Cliente','Data','Importo €','Note']);
+  const sciO = nuovo('sciO','Sci ore',['Stagione','Data','Tipo','Ore','Note']);
+  const sciP = nuovo('sciP','Sci paga',['Stagione','Ore scuola sci','Paga oraria €','Totale scuola sci €','Ore sci club','Stipendio contratto €','€ all\'ora sci club','Ore sci club extra','Soldi ricevuti extra €','€ all\'ora extra','TOTALE sci €']);
+  const benz = nuovo('benz','Benzina',['Anno','Data','Mezzo','Macchina','Litri','Importo €','Note']);
+  const cond = nuovo('cond','Condomini',['Condominio','Indirizzo','Referente','Telefono','Frequenza giorni','Preventivo €','Preventivo neve €','Codice univoco','Contato come privato','Escluso dal resoconto','Note']);
+  const pri = nuovo('pri','Clienti privati',['Cliente','Indirizzo','Telefono','Escluso dal resoconto','Note']);
+  const lel = nuovo('lel','Clienti Lele',['Cliente','Indirizzo','Telefono','Note']);
+  const mac = nuovo('mac','Macchine',['Macchina','Tipo','Ore contatore','Ultima manutenzione (ore)','Soglia manutenzione (ore)','Note']);
+
+  const salvaAnno = annoAttivo, salvaNeve = stagioneAttiva, salvaSci = stagioneSci;
+  const sommeTot = new Array(tot[0].length).fill(0);
+  try{
+    anni.forEach(y=>{
+      annoAttivo = y; stagioneAttiva = y+'/'+(Number(y)+1); stagioneSci = stagioneAttiva;   // anno y con la stagione invernale che inizia in quell'anno
+      const T = calcolaTotali();
+      const riga = [y, stagioneAttiva, T.condTot, T.condInc, T.neveTot, T.neveInc, T.bon.tot, T.bon.inc, T.sci.scuola.importo, T.sci.sciclub.importo, T.sci.extra.importo, T.gruppoA,
+        T.saldatiTot, T.accTot, T.condPrivTot, T.condPrivInc, T.nero.tot, T.nero.inc, T.gruppoB, T.gruppoA+T.gruppoB, T.nd.tot];
+      tot.push(riga.map((v,i)=> i>=2 ? Math.round(v*100)/100 : v));
+      riga.forEach((v,i)=>{ if(i>=2) sommeTot[i]+=v; });
+
+      DB.leleClienti.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it',{sensitivity:'base'})).forEach(c=>{
+        const st = statoLeleCliente(c.id);
+        const fs = DB.fattureLele.filter(f=>f.clienteId===c.id);
+        const nonNero = fs.filter(f=>f.metodo!=='nero');
+        const fatt = nonNero.reduce((t,f)=>t+(Number(f.importo)||0),0), pag = nonNero.filter(f=>f.pagata).reduce((t,f)=>t+(Number(f.importo)||0),0);
+        const nero = fs.filter(f=>f.metodo==='nero').reduce((t,f)=>t+(Number(f.importo)||0),0);
+        if(st.oreTot>0 || st.daFatturare>0.005 || fs.length) leleCl.push([y, c.nome||'', Math.round(st.ore*100)/100, Math.round(st.oreVecchie*100)/100, Math.round(st.oreTot*100)/100, Math.round(st.daFatturare*100)/100, fatt, pag, nero]);
+      });
+      calcolaFatturazioneLele().forEach(j=>{
+        const stato = j.costo>0.005 && j.resto<=0.005 ? 'Già fatturato' : (j.resto<j.costo-0.005 ? 'In parte' : 'Da fatturare');
+        leleLav.push([y, nLele(j.l.clienteId), j.l.data||'', j.l.descrizione||'', num(j.l.durataOre), Math.round(j.costo*100)/100, Math.round(j.resto*100)/100, stato, j.l.note||'']);
+      });
+    });
+  } finally { annoAttivo = salvaAnno; stagioneAttiva = salvaNeve; stagioneSci = salvaSci; }
+  tot.push(['TOTALE','',...sommeTot.slice(2).map(v=>Math.round(v*100)/100)]);
+
+  anni.forEach(y=>{
+    (DB.fattureLeleAnni[y]||[]).forEach(f=> fLele.push([y, nLele(f.clienteId), f.numero||'', f.tipo||'', f.data||'', num(f.importo), f.metodo==='nero'?'Nero':(f.metodo==='bonifico'?'Bonifico':'(non scelto)'), sino(f.pagata), f.note||'']));
+    (DB.fattureAnni[y]||[]).forEach(f=> fCond.push([y, nCondo(f.condominioId), f.numero||'', f.tipo||'', f.data||'', num(f.importo), sino(f.pagata), sino(idCP.has(f.condominioId)), f.note||'']));
+    (DB.interventiAnni[y]||[]).forEach(i=> intv.push([y, nCondo(i.condominioId), i.data||'', tipiTesto(i.tipi), num(i.durataOre), num(i.oreAcquisto), macchineTesto(i.macchine), i.note||'', i.noteAltro||'']));
+    (DB.privatiLavoriAnni[y]||[]).forEach(l=> privL.push([y, nPriv(l.clienteId), l.data||'', l.descrizione||'', l.stato||'', num(l.durataOre), num(l.oreAcquisto), num(l.preventivoFisso), num(l.importo), l.note||'']));
+    (DB.privatiAccontiAnni[y]||[]).forEach(a=> privA.push([y, nPriv(a.clienteId), a.data||'', num(a.importo), a.note||'']));
+    (DB.benzinaAnni[y]||[]).forEach(b=> benz.push([y, b.data||'', b.mezzo||'', nMacc(b.macchinaId), num(b.litri), num(b.importo), b.note||'']));
+  });
+  stagioni.forEach(st=>{
+    (DB.fattureNeveStagioni[st]||[]).forEach(f=> fNeve.push([st, nCondo(f.condominioId), f.numero||'', f.tipo||'', f.data||'', num(f.importo), sino(f.pagata), sino(idCP.has(f.condominioId)), f.note||'']));
+    (DB.neveStagioni[st]||[]).forEach(n=> neve.push([st, nCondo(n.condominioId), n.data||'', tipiTesto(n.tipi), num(n.durataOre), macchineTesto(n.macchine), n.note||'']));
+    (DB.sciStagioni[st]||[]).forEach(x=> sciO.push([st, x.data||'', labelSci(x.categoria), num(x.ore), x.note||'']));
+    stagioneSci = st;
+    try{
+      const r = sciRiepilogo();
+      if(r.ore.scuola||r.ore.sciclub||r.ore.extra||r.totale) sciP.push([st, r.ore.scuola, r.scuola.orario, Math.round(r.scuola.importo*100)/100, r.ore.sciclub, r.sciclub.importo, r.sciclub.orario===null?'':Math.round(r.sciclub.orario*100)/100, r.ore.extra, r.extra.importo, r.extra.orario===null?'':Math.round(r.extra.orario*100)/100, Math.round(r.totale*100)/100]);
+    } finally { stagioneSci = salvaSci; }
+  });
+  DB.condomini.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it',{sensitivity:'base'})).forEach(c=> cond.push([c.nome||'', c.indirizzo||'', c.referente||'', c.telefono||'', c.frequenzaGiorni||'', num(c.preventivo), num(c.preventivoNeve), c.codiceUnivoco||'', sino(c.contaComePrivato), sino(c.escludiResoconto), c.note||'']));
+  DB.privatiClienti.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it',{sensitivity:'base'})).forEach(c=> pri.push([c.nome||'', c.indirizzo||'', c.telefono||'', sino(c.escludiResoconto), c.note||'']));
+  DB.leleClienti.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it',{sensitivity:'base'})).forEach(c=> lel.push([c.nome||'', c.indirizzo||'', c.telefono||'', c.note||'']));
+  DB.macchinari.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it',{sensitivity:'base'})).forEach(m=> mac.push([m.nome||'', m.tipo||'', num(m.contatoreOre), num(m.ultimaManutenzioneOre), num(m.sogliaManutenzione), m.note||'']));
+
+  const leggimi = [
+    ['Gestionale · esportazione completa'],
+    ['Creata il', todayISO()],
+    [''],
+    ['Contiene tutti i dati di tutti gli anni, comprese le fatture in nero.'],
+    ['Nel foglio "Totali per anno" ogni anno è abbinato alla stagione invernale che inizia in quell\'anno (es. anno 2026 con neve e sci 2026/2027).'],
+    ['I totali usano gli stessi calcoli della pagina Totali dell\'app.'],
+    ['Le date sono nel formato anno-mese-giorno.'],
+  ];
+  const ordine = ['tot','leleCl','leleLav','fLele','fCond','intv','fNeve','neve','privL','privA','sciO','sciP','benz','cond','pri','lel','mac'];
+  return [{nome:'Leggimi', righe:leggimi}, ...ordine.map(k=>F[k])];
+}
+function larghezzeColonne(righe){
+  const n = Math.max(...righe.map(r=>r.length));
+  return Array.from({length:n}, (_,i)=> ({ wch: Math.min(48, Math.max(10, ...righe.map(r=> String(r[i]===undefined?'':r[i]).length+2))) }));
+}
+async function esportaExcel(){
+  toast('Preparo il file…');
+  try{
+    const XLSX = await caricaXLSX();
+    const fogli = costruisciFogliExport();
+    const wb = XLSX.utils.book_new();
+    fogli.forEach(f=>{
+      const ws = XLSX.utils.aoa_to_sheet(f.righe);
+      ws['!cols'] = larghezzeColonne(f.righe);
+      XLSX.utils.book_append_sheet(wb, ws, f.nome.slice(0,31));
+    });
+    const out = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const nomeFile = 'gestionale-'+todayISO()+'.xlsx';
+    const file = new File([out], nomeFile, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    // su iPhone si apre il menu Condividi: da lì Salva in File, Mail, WhatsApp...
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file], title:nomeFile}); return; }
+      catch(e){ if(e && e.name==='AbortError') return; }
+    }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a'); a.href = url; a.download = nomeFile;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  }catch(e){
+    console.error(e);
+    toast('Esportazione non riuscita: controlla la connessione e riprova');
+  }
 }
 
 // ---------- REGISTRO CONTABILE LELE ----------
