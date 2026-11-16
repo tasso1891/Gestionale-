@@ -413,7 +413,7 @@ if(!DB.neveStagioni[stagioneAttiva]) DB.neveStagioni[stagioneAttiva] = [];
   }catch(e){ console.error(e); }
 })();
 
-let TAB = 'home';
+let TAB = (barraDelPeriodo()[0]==='sci') ? 'sci' : 'home';
 let openCondoId = null;
 let showAllHome = false;
 let filtroRegistro = 'tutti';
@@ -598,7 +598,7 @@ const PADRE_TAB = {resoconto:'condomini', resocontoPrivati:'privati', resocontoN
 // barra in basso che cambia con la stagione: d'inverno (1 dicembre - 15 aprile) sci e neve, il resto dell'anno il lavoro di tutti i giorni
 function barraDelPeriodo(){
   const d = new Date(); const m = d.getMonth()+1, g = d.getDate();
-  const inverno = m===12 || m<=3 || (m===4 && g<=15);
+  const inverno = (m===11 && g>=15) || m===12 || m<=3 || (m===4 && g<=15);
   return inverno ? ['sci','neve','privati','totali'] : ['home','condomini','lele','privati','totali'];
 }
 
@@ -3747,6 +3747,5 @@ window.cloud = {
   accedi: ()=> mostraLogin()
 };
 </script>
-
 </body>
 </html>
