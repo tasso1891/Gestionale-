@@ -109,7 +109,6 @@ nav{position:fixed; bottom:0; left:0; right:0; background:var(--card); border-to
 .tipo-chip.active{border-color:var(--forest); background:var(--forest); color:#fff;}
 .macchina-row{display:flex; gap:8px; margin-bottom:8px; align-items:center;}
 </style>
-
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
@@ -1173,6 +1172,7 @@ function renderCondomini(){
           </div>
           <div class="btn-row">
             <button class="btn btn-ghost" style="font-size:13px;padding:8px 12px" onclick="openFatturaForm('${c.id}','${f.id}')">✎ Modifica</button>
+            <button class="btn btn-ghost" style="font-size:13px;padding:8px 12px" onclick="openFatturaPDFForm('${c.id}','${f.id}')">📄 PDF</button>
             <button class="btn btn-danger btn-auto" style="padding:8px 12px" onclick="delFattura('${f.id}')">🗑</button>
           </div>
         </div>`).join('')}
@@ -1188,6 +1188,183 @@ function renderCondomini(){
   html += `</div>`;
   return html;
 }
+// ---------- FATTURA IN PDF (per la commercialista) ----------
+const EMITTENTE_DEFAULT = {nome:'TASSELLI PAOLO', indirizzo:'C.SO NIZZA 166', citta:'12015 LIMONE PIEMONTE', cf:'TSS PLA 91D18 A145Z', piva:'03413290044', iban:'IT05A08439464410000180111229'};
+const DESCR_DEFAULT = 'Intervento mantenimento aree verdi e taglio siepe, pulizia passaggi condominiali esterni.';
+function leggiJSONLocale(k, def){ try{ const r = localStorage.getItem(k); return r ? JSON.parse(r) : def; }catch(e){ return def; } }
+function datiEmittente(){ return Object.assign({}, EMITTENTE_DEFAULT, leggiJSONLocale('gv_datiFattura', {})); }
+function datiFattCondo(id){ return (leggiJSONLocale('gv_datiFatturaCondo', {}))[id] || {}; }
+function salvaDatiFattCondo(id, d){
+  const tutti = leggiJSONLocale('gv_datiFatturaCondo', {});
+  tutti[id] = Object.assign({}, tutti[id]||{}, d);
+  try{ localStorage.setItem('gv_datiFatturaCondo', JSON.stringify(tutti)); }catch(e){ console.error(e); }
+}
+function arr2(n){ return Math.round((Number(n)+Number.EPSILON)*100)/100; }
+function eur(n){ return arr2(n).toFixed(2).replace('.',','); }
+// partendo dall'importo scelto calcola imponibile, IVA, totale, ritenuta e netto da corrispondere
+function calcolaFattPDF(tipo, importo, ivaPerc, ritPerc){
+  const iva = (Number(ivaPerc)||0)/100, rit = (Number(ritPerc)||0)/100, x = Number(importo)||0;
+  let imp;
+  if(tipo==='imponibile') imp = x;
+  else if(tipo==='corrisposto') imp = x/(1+iva-rit);
+  else imp = x/(1+iva);
+  imp = arr2(imp);
+  const ivaE = arr2(imp*iva), tot = arr2(imp+ivaE), ritE = arr2(imp*rit);
+  return {imp, ivaE, tot, ritE, corr: arr2(tot-ritE)};
+}
+function anteprimaFattPDF(){
+  const g = id=>document.getElementById(id);
+  const r = calcolaFattPDF(g('fp-tipo').value, g('fp-importo').value, g('fp-iva').value, g('fp-rit').value);
+  g('fp-anteprima').innerHTML = `Imponibile € ${eur(r.imp)} · IVA € ${eur(r.ivaE)} · Totale fattura <b>€ ${eur(r.tot)}</b>`+
+    (r.ritE>0 ? `<br>Ritenuta € ${eur(r.ritE)} · Totale corrisposto <b>€ ${eur(r.corr)}</b>` : '');
+}
+function openFatturaPDFForm(condominioId, fatturaId){
+  const c = DB.condomini.find(x=>x.id===condominioId);
+  const f = DB.fatture.find(x=>x.id===fatturaId);
+  if(!c || !f) return;
+  const d = datiFattCondo(c.id);
+  openSheet('Fattura in PDF', `
+    <input type="hidden" id="fp-condo" value="${c.id}"><input type="hidden" id="fp-fatt" value="${f.id}">
+    <div class="field"><div class="field-label">Intestazione destinatario</div>
+      <input class="input" id="fp-intest" value="${esc(d.intest||'SPETT.LE CONDOMINIO')}"></div>
+    <div class="field"><div class="field-label">Nome</div>
+      <input class="input" id="fp-nome" value="${esc(d.nome||String(c.nome||'').toUpperCase())}"></div>
+    <div class="field"><div class="field-label">Indirizzo</div>
+      <input class="input" id="fp-ind" value="${esc(d.indirizzo||String(c.indirizzo||'').toUpperCase())}"></div>
+    <div class="field"><div class="field-label">CAP e città</div>
+      <input class="input" id="fp-citta" value="${esc(d.citta||'12015 LIMONE PIEMONTE')}"></div>
+    <div class="field"><div class="field-label">Codice fiscale / P.IVA condominio</div>
+      <input class="input" id="fp-cf" value="${esc(d.cf||'')}" placeholder="es. 96002360046"></div>
+    <div class="field"><div class="field-label">Descrizione dei lavori</div>
+      <textarea class="input" id="fp-descr" style="min-height:110px">${esc(f.note || d.descr || DESCR_DEFAULT)}</textarea></div>
+    <div class="field"><div class="field-label">L'importo che ho registrato è</div>
+      <select class="input" id="fp-tipo" onchange="anteprimaFattPDF()">
+        <option value="totale">Il totale fattura (IVA compresa)</option>
+        <option value="imponibile">L'imponibile (IVA esclusa)</option>
+        <option value="corrisposto">Il totale corrisposto (dopo la ritenuta)</option>
+      </select></div>
+    <div class="field"><div class="field-label">Importo (€)</div>
+      <input class="input" type="number" step="0.01" id="fp-importo" value="${esc(f.importo||'')}" oninput="anteprimaFattPDF()"></div>
+    <div style="display:flex; gap:10px">
+      <div class="field" style="flex:1"><div class="field-label">IVA %</div>
+        <input class="input" type="number" step="0.01" id="fp-iva" value="${esc(d.iva!==undefined?d.iva:22)}" oninput="anteprimaFattPDF()"></div>
+      <div class="field" style="flex:1"><div class="field-label">Ritenuta % (0 = nessuna)</div>
+        <input class="input" type="number" step="0.01" id="fp-rit" value="${esc(d.rit!==undefined?d.rit:4)}" oninput="anteprimaFattPDF()"></div>
+    </div>
+    <div id="fp-anteprima" class="sub" style="margin-bottom:12px"></div>
+    <button class="btn btn-primary" onclick="creaFatturaPDF()">📄 Crea PDF</button>
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="openDatiEmittente('${c.id}','${f.id}')">✎ I miei dati (nome, P.IVA, IBAN)</button>
+  `);
+  anteprimaFattPDF();
+}
+function openDatiEmittente(condoId, fattId){
+  const e = datiEmittente();
+  openSheet('I miei dati fattura', `
+    <div class="field"><div class="field-label">Nome</div><input class="input" id="em-nome" value="${esc(e.nome)}"></div>
+    <div class="field"><div class="field-label">Indirizzo</div><input class="input" id="em-ind" value="${esc(e.indirizzo)}"></div>
+    <div class="field"><div class="field-label">CAP e città</div><input class="input" id="em-citta" value="${esc(e.citta)}"></div>
+    <div class="field"><div class="field-label">Codice fiscale</div><input class="input" id="em-cf" value="${esc(e.cf)}"></div>
+    <div class="field"><div class="field-label">Partita IVA</div><input class="input" id="em-piva" value="${esc(e.piva)}"></div>
+    <div class="field"><div class="field-label">IBAN</div><input class="input" id="em-iban" value="${esc(e.iban)}"></div>
+    <button class="btn btn-primary" onclick="salvaDatiEmittente('${condoId}','${fattId}')">Salva</button>`);
+}
+function salvaDatiEmittente(condoId, fattId){
+  const g = id=>document.getElementById(id).value.trim();
+  try{ localStorage.setItem('gv_datiFattura', JSON.stringify({nome:g('em-nome'), indirizzo:g('em-ind'), citta:g('em-citta'), cf:g('em-cf'), piva:g('em-piva'), iban:g('em-iban').replace(/\s+/g,'')})); }catch(e){ console.error(e); }
+  openFatturaPDFForm(condoId, fattId);
+}
+
+// piccolo generatore di PDF (Times, A4): niente librerie esterne, funziona anche senza rete
+function pdfLatin1(s){
+  return String(s).replace(/€/g,'\u0080').replace(/[’‘]/g,"'").replace(/[“”]/g,'"').replace(/[–—]/g,'-').replace(/[^\u0000-ÿ]/g,'?');
+}
+function pdfEsc(s){ return pdfLatin1(s).replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)'); }
+function pdfLarghezza(s, size, bold){
+  let w = 0;
+  for(const ch of String(s)){
+    if(/[0-9€]/.test(ch)) w += 500; else if(/[ ,.:;]/.test(ch)) w += 250;
+    else if(/[A-Z]/.test(ch)) w += bold?720:680; else if(/[mw]/.test(ch)) w += 740;
+    else if(/[il]/.test(ch)) w += 280; else w += bold?500:450;
+  }
+  return w*size/1000;
+}
+function pdfRighe(testo, size, maxW){
+  const out = [];
+  String(testo).split(/\r?\n/).forEach(par=>{
+    let riga = '';
+    par.split(/\s+/).filter(Boolean).forEach(p=>{
+      const prova = riga ? riga+' '+p : p;
+      if(pdfLarghezza(prova,size,false) > maxW && riga){ out.push(riga); riga = p; } else riga = prova;
+    });
+    out.push(riga);
+  });
+  return out;
+}
+function costruisciPDFFattura(o){
+  const H = 842, L = 56; let ops = [];
+  const t = (x, top, s, size, bold)=> ops.push(`BT /${bold?'F2':'F1'} ${size} Tf ${x.toFixed(2)} ${(H-top).toFixed(2)} Td (${pdfEsc(s)}) Tj ET`);
+  const tDx = (xDx, top, s, size, bold)=> t(xDx - pdfLarghezza(s,size,bold), top, s, size, bold);
+  let y = 70;
+  [o.em.nome, o.em.indirizzo, o.em.citta, o.em.cf?'C.F. '+o.em.cf:'', o.em.piva?'P.IVA '+o.em.piva:''].filter(Boolean).forEach(r=>{ t(L,y,r,11,false); y += 17; });
+  let yd = 165;
+  [o.dest.intest, o.dest.nome, o.dest.indirizzo, o.dest.citta, o.dest.cf?'C.F. '+o.dest.cf:''].filter(Boolean).forEach(r=>{ t(300,yd,r,11,false); yd += 17; });
+  y = 290;
+  t(L,y,`FATTURA N° ${o.numero} DEL ${o.data}`,12,true); y += 24;
+  pdfRighe(o.descr, 11, 483).forEach(r=>{ t(L,y,r,11,false); y += 15; });
+  y += 30;
+  const X = 400, r = o.r;
+  t(L,y,'TOTALE FATTURA',11,true); tDx(X,y,'€ '+eur(r.tot),11,true); y += 24;
+  t(L,y,'IMPONIBILE',11,false); tDx(X,y,'€ '+eur(r.imp),11,false); y += 22;
+  t(L,y,'IVA '+o.ivaPerc+'%',11,false); tDx(X,y,'€ '+eur(r.ivaE),11,false); y += 22;
+  if(r.ritE>0){
+    t(L,y,'A DEDURRE RIT. ACC DEL '+o.ritPerc+'%',11,false); y += 20;
+    t(L,y,'SU '+eur(r.imp).replace(',00','')+' PARI A',11,false); tDx(X,y,'€ '+eur(r.ritE),11,false); y += 24;
+    t(L,y,'TOTALE CORRISPOSTO',11,true); tDx(X,y,'€ '+eur(r.corr),11,true); y += 40;
+  } else y += 18;
+  if(o.em.iban) t(L,y,'IBAN : '+o.em.iban,13,true);
+  const stream = ops.join('\n');
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>',
+    `<< /Length ${pdfLatin1(stream).length} >>\nstream\n${stream}\nendstream`
+  ];
+  let pdf = '%PDF-1.4\n'; const off = [];
+  objs.forEach((b,i)=>{ off.push(pdfLatin1(pdf).length); pdf += `${i+1} 0 obj\n${b}\nendobj\n`; });
+  const xref = pdfLatin1(pdf).length;
+  pdf += `xref\n0 ${objs.length+1}\n0000000000 65535 f \n` + off.map(n=>String(n).padStart(10,'0')+' 00000 n \n').join('') +
+         `trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  const bin = pdfLatin1(pdf), bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+async function creaFatturaPDF(){
+  const g = id=>document.getElementById(id).value;
+  const condoId = g('fp-condo'), fattId = g('fp-fatt');
+  const f = DB.fatture.find(x=>x.id===fattId), c = DB.condomini.find(x=>x.id===condoId);
+  if(!f || !c) return;
+  const dest = {intest:g('fp-intest').trim(), nome:g('fp-nome').trim(), indirizzo:g('fp-ind').trim(), citta:g('fp-citta').trim(), cf:g('fp-cf').trim()};
+  salvaDatiFattCondo(condoId, Object.assign({}, dest, {descr:g('fp-descr'), iva:g('fp-iva'), rit:g('fp-rit')}));
+  const ivaPerc = Number(g('fp-iva'))||0, ritPerc = Number(g('fp-rit'))||0;
+  const r = calcolaFattPDF(g('fp-tipo'), g('fp-importo'), ivaPerc, ritPerc);
+  const d = (f.data||todayISO()).split('-');
+  const numero = String(f.numero||'').trim() || '___';
+  const bytes = costruisciPDFFattura({em:datiEmittente(), dest, numero, data:`${d[2]}/${d[1]}/${d[0]}`, descr:g('fp-descr'), r, ivaPerc:String(ivaPerc).replace('.',','), ritPerc:String(ritPerc).replace('.',',')});
+  const nomeFile = ('Fattura-'+numero.replace(/[^\w.-]+/g,'-')+'-'+(dest.nome||c.nome).replace(/[^\w]+/g,'-')+'.pdf').replace(/-+/g,'-');
+  const file = new File([bytes], nomeFile, {type:'application/pdf'});
+  closeSheet();
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:nomeFile}); return; }
+    catch(e){ if(e && e.name==='AbortError') return; }
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a'); a.href = url; a.download = nomeFile;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
 // ---------- RESOCONTO CONTABILE CONDOMINI ----------
 function renderResocontoCondomini(){
   const condominiInclusi = condominiOrdinati().filter(c=> !c.escludiResoconto && !c.contaComePrivato);
@@ -3514,7 +3691,6 @@ function toast(msg){
 // ---------- init ----------
 render();
 </script>
-
 <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}</script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
