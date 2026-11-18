@@ -7,8 +7,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Aree Verdi">
 <meta name="theme-color" content="#28402B">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Gestionale Aree Verdi</title>
 <style>
 :root{
@@ -111,6 +109,9 @@ nav{position:fixed; bottom:0; left:0; right:0; background:var(--card); border-to
 .tipo-chip.active{border-color:var(--forest); background:var(--forest); color:#fff;}
 .macchina-row{display:flex; gap:8px; margin-bottom:8px; align-items:center;}
 </style>
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
 <body>
 <div id="app">
@@ -2032,7 +2033,8 @@ function calcolaFatturazioneLele(){
     .map(l=>({l, ore:Number(l.durataOre)||0, costo:costo(l), resto:costo(l)}));
   // la scelta fatta nell'intervento vince: "già fatturato" azzera il conto, "da fatturare" non può essere coperto da fatture precedenti
   jobs.forEach(j=>{ if(j.l.fatturato===true) j.resto = 0; });
-  DB.fattureLele.slice().sort((a,b)=> (a.data||'')<(b.data||'') ? -1 : ((a.data||'')>(b.data||'') ? 1 : 0)).forEach(f=>{
+  // scalano le ore solo le fatture pagate: una fattura "da pagare" (nero o bonifico) non azzera niente finché non la segni come pagata
+  DB.fattureLele.filter(f=>f.pagata===true).sort((a,b)=> (a.data||'')<(b.data||'') ? -1 : ((a.data||'')>(b.data||'') ? 1 : 0)).forEach(f=>{
     let imp = Number(f.importo)||0;
     for(const j of jobs){
       if(imp<=0.005) break;
@@ -3511,10 +3513,9 @@ function toast(msg){
 
 // ---------- init ----------
 render();
-if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
-  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
-}
 </script>
+
+<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}</script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
