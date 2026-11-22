@@ -3498,15 +3498,39 @@ const CATEGORIE_SCI = [
 ];
 function labelSci(id){ const c = CATEGORIE_SCI.find(x=>x.id===id); return c ? c.label : 'Sci'; }
 
+// contratto allenatori sci club: base fissa + bonus in base alla paga oraria media della scuola sci; dalla 51ª giornata (7 ore l'una) si paga ogni giornata extra
+const CONTRATTO_SCI = {
+  base: 11500, giornatePreviste: 50, oreGiornata: 7, compensoGiornataExtra: 230,
+  scaglioni: [ {da:41, bonus:2200}, {da:39, bonus:1650}, {da:37, bonus:1100}, {da:35, bonus:550}, {da:0, bonus:0} ]
+};
+function bonusSciClub(tariffa){
+  const t = Number(tariffa)||0;
+  const sc = CONTRATTO_SCI.scaglioni.find(x=> t>=x.da);
+  return sc ? sc.bonus : 0;
+}
+function prossimoScaglioneSci(tariffa){
+  const t = Number(tariffa)||0;
+  const sopra = CONTRATTO_SCI.scaglioni.filter(x=> x.da>t).sort((a,b)=>a.da-b.da)[0];
+  return sopra || null;
+}
 function sciRiepilogo(){
   const ore = {};
   CATEGORIE_SCI.forEach(c=>{ ore[c.id] = DB.sci.filter(x=>x.categoria===c.id).reduce((t,x)=> t+(Number(x.ore)||0), 0); });
   const p = DB.sciPag;
-  const tariffa = Number(p.scuolaTariffa)||0, stip = Number(p.sciclubStipendio)||0, extra = Number(p.extraImporto)||0;
+  const tariffa = Number(p.scuolaTariffa)||0, extra = Number(p.extraImporto)||0;
+  const base = (p.sciclubBase!==null && p.sciclubBase!==undefined && p.sciclubBase!=='') ? Number(p.sciclubBase)||0 : CONTRATTO_SCI.base;
+  const bonus = tariffa>0 ? bonusSciClub(tariffa) : 0;
+  const giornate = ore.sciclub / CONTRATTO_SCI.oreGiornata;
+  // oltre le 50 giornate: giornata intera (7 h) = 230 €, mezza giornata (3,5 h) = 115 €; niente proporzioni sulle ore che non completano una mezza giornata
+  const oreOltre = Math.max(0, ore.sciclub - CONTRATTO_SCI.giornatePreviste*CONTRATTO_SCI.oreGiornata);
+  const mezze = Math.floor(oreOltre/(CONTRATTO_SCI.oreGiornata/2) + 1e-9);
+  const giornateExtra = mezze/2;
+  const importoExtraGiorn = mezze*(CONTRATTO_SCI.compensoGiornataExtra/2);
+  const stip = base + bonus + importoExtraGiorn;
   return {
     ore,
     scuola:  { importo: tariffa*ore.scuola, orario: tariffa },
-    sciclub: { importo: stip,  orario: ore.sciclub>0 ? stip/ore.sciclub : null },
+    sciclub: { importo: stip, orario: ore.sciclub>0 ? stip/ore.sciclub : null, base, bonus, giornate, giornateExtra, importoExtraGiorn },
     extra:   { importo: extra, orario: ore.extra>0 ? extra/ore.extra : null },
     totale: tariffa*ore.scuola + stip + extra
   };
@@ -3539,10 +3563,18 @@ function renderSci(){
         : `Inserisci a fine stagione quanto ti pagano all'ora.`
     },
     sciclub: {
-      campo:'sciclubStipendio', etichetta:'Stipendio da contratto (€)', valore:p.sciclubStipendio,
-      calcolo: r.sciclub.importo>0
-        ? (r.sciclub.orario!==null ? `${eur(r.sciclub.importo)} su ${fmtOre(r.ore.sciclub)} h = <b>${eur(r.sciclub.orario)}/h</b>` : `Nessuna ora registrata: non posso calcolare l'importo all'ora.`)
-        : `Inserisci il tuo stipendio e ti calcolo quanto viene all'ora.`
+      campo:'sciclubBase', etichetta:'Base contratto (€, di solito '+CONTRATTO_SCI.base+')', valore:(p.sciclubBase===undefined?null:p.sciclubBase),
+      calcolo: (()=>{
+        const c = r.sciclub, prossimo = prossimoScaglioneSci(r.scuola.orario);
+        let t = `Base ${eur(c.base)} + bonus ${eur(c.bonus)}`;
+        t += r.scuola.orario>0 ? ` (scuola sci a ${eur(r.scuola.orario)}/h)` : ` <span style="color:var(--ink-soft)">(inserisci la paga oraria della scuola sci per calcolare il bonus)</span>`;
+        if(c.importoExtraGiorn>0) t += `<br>+ ${String(c.giornateExtra).replace('.',',')} ${c.giornateExtra===1?'giornata extra':'giornate extra'} (${eur(CONTRATTO_SCI.compensoGiornataExtra)} la giornata, ${eur(CONTRATTO_SCI.compensoGiornataExtra/2)} la mezza) = ${eur(c.importoExtraGiorn)}`;
+        t += `<br>Stipendio sci club: <b>${eur(c.importo)}</b>`;
+        if(c.orario!==null) t += ` · <b>${eur(c.orario)}/h</b>`;
+        t += `<br><span style="color:var(--ink-soft)">Giornate fatte: ${fmtOre(Math.round(c.giornate*100)/100)} su ${CONTRATTO_SCI.giornatePreviste} previste (1 giornata = ${CONTRATTO_SCI.oreGiornata} h). Oltre la ${CONTRATTO_SCI.giornatePreviste}ª giornata: giornata intera (${CONTRATTO_SCI.oreGiornata} h) ${eur(CONTRATTO_SCI.compensoGiornataExtra)}, mezza giornata (${CONTRATTO_SCI.oreGiornata/2} h) ${eur(CONTRATTO_SCI.compensoGiornataExtra/2)}.</span>`;
+        if(prossimo && r.scuola.orario>0) t += `<br><span style="color:var(--ink-soft)">Con la scuola sci a ${prossimo.da} €/h il bonus sale a ${eur(prossimo.bonus)}.</span>`;
+        return t;
+      })()
     },
     extra: {
       campo:'extraImporto', etichetta:'Soldi ricevuti (€)', valore:p.extraImporto,
