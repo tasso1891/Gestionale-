@@ -2583,9 +2583,10 @@ function calcolaTotali(){
   const idPriv = new Set(DB.privatiClienti.filter(c=>!c.escludiResoconto).map(c=>c.id));
   const saldati = DB.privatiLavori.filter(l=> idPriv.has(l.clienteId) && l.stato==='Saldato');
   const oreSaldati = somma(saldati, l=> (Number(l.durataOre)||0)+(Number(l.oreAcquisto)||0));
-  const saldatiTot = oreSaldati*TARIFFA_ORARIA + somma(saldati, l=>l.preventivoFisso) + somma(saldati, l=>estraiEuroDalleNote(l.note)) + somma(saldati, l=>l.importo);
+  // nei Totali dei privati conta solo la manodopera (ore × tariffa + preventivo fisso) dei lavori saldati: materiali ed extra non sono guadagno; gli acconti sono solo anticipi, quindi non si sommano
+  const saldatiTot = oreSaldati*TARIFFA_ORARIA + somma(saldati, l=>l.preventivoFisso);
   const accTot = somma(DB.privatiAcconti.filter(a=> idPriv.has(a.clienteId)), a=>a.importo);
-  const privTot = saldatiTot + accTot;
+  const privTot = saldatiTot;
 
   const sci = sciRiepilogo();
   const gruppoA = condTot + neveTot + bon.tot + sci.totale;
@@ -2605,8 +2606,7 @@ function renderTotali(){
     + (sci.scuola.importo>0.005 ? riga('Scuola sci', sci.scuola.importo, `${fmtOre(sci.ore.scuola)} h × € ${sci.scuola.orario.toFixed(2)}/h`) : '')
     + (sci.sciclub.importo>0.005 ? riga('Sci club · contratto', sci.sciclub.importo, sci.sciclub.orario!==null ? `${fmtOre(sci.ore.sciclub)} h · € ${sci.sciclub.orario.toFixed(2)}/h` : '') : '')
     + (sci.extra.importo>0.005 ? riga('Sci club extra', sci.extra.importo, sci.extra.orario!==null ? `${fmtOre(sci.ore.extra)} h · € ${sci.extra.orario.toFixed(2)}/h` : '') : '');
-  const righeB = riga('Privati · lavori saldati', saldatiTot)
-    + riga('Privati · acconti ricevuti', accTot)
+  const righeB = riga('Privati · manodopera lavori saldati', saldatiTot, 'solo ore e preventivo, senza materiali')
     + (idCP.size ? riga('Condomini contati come privati', condPrivTot, `${nomiCP} · incassato € ${condPrivInc.toFixed(2)}`) : '')
     + riga('Lele · in nero', nero.tot, `incassato € ${nero.inc.toFixed(2)}`)
     + `<button class="btn btn-ghost btn-auto" style="margin-top:14px; font-size:12px; padding:6px 12px; opacity:.7" onclick="openEmergenza()">⌫</button>`;
@@ -2661,7 +2661,7 @@ function costruisciFogliExport(){
 
   const F = {};
   const nuovo = (k, nomeFoglio, intest) => { F[k] = { nome:nomeFoglio, righe:[intest] }; return F[k].righe; };
-  const tot = nuovo('tot','Totali per anno',['Anno','Stagione neve e sci','Fatture condomini','di cui incassato','Fatture neve','di cui incassato','Lele bonifico','di cui incassato','Scuola sci','Sci club contratto','Sci club extra','TOTALE condomini + bonifici + sci','Privati lavori saldati','Privati acconti','Condomini contati come privati','di cui incassato','Lele nero','di cui incassato','TOTALE privati + nero','TOTALE COMPLESSIVO','Lele senza metodo (esclusi)']);
+  const tot = nuovo('tot','Totali per anno',['Anno','Stagione neve e sci','Fatture condomini','di cui incassato','Fatture neve','di cui incassato','Lele bonifico','di cui incassato','Scuola sci','Sci club contratto','Sci club extra','TOTALE condomini + bonifici + sci','Privati manodopera saldati','Acconti privati (info, non sommati)','Condomini contati come privati','di cui incassato','Lele nero','di cui incassato','TOTALE privati + nero','TOTALE COMPLESSIVO','Lele senza metodo (esclusi)']);
   const leleCl = nuovo('leleCl','Lele per cliente',['Anno','Cliente','Ore da fatturare','Ore già fatturate','Ore totali','€ da fatturare','Fatturato (non nero)','Pagato (non nero)','Nero']);
   const leleLav = nuovo('leleLav','Lele interventi',['Anno','Cliente','Data','Descrizione','Ore','Importo €','Ancora da fatturare €','Stato fatturazione','Note']);
   const fLele = nuovo('fLele','Fatture Lele',['Anno','Cliente','Numero','Tipo','Data','Importo €','Metodo','Pagata','Note']);
